@@ -35,7 +35,7 @@ include(":core:ui")
 
 // Engine
 include(":engine:rules")        // M1
-// include(":engine:decision")  // M2
+include(":engine:decision")     // M2
 // include(":engine:llm")       // M4
 
 // Feature
