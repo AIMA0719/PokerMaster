@@ -179,4 +179,151 @@ class SidePotTest {
             assertConservation(input, r)
         }
     }
+
+    // =====================================================================
+    // M3 Sprint2-F 검증 스위트 SP-01 ~ SP-08
+    // 설계서 v1.1 §3.1 기준. 기존 테스트와 시나리오가 겹칠 수 있어
+    // spec_ prefix 로 네임스페이스 분리.
+    // =====================================================================
+
+    // SP-01: 단순 올인 — 3인, A 작은 올인, B/C 더 큰 동일 콜 → main + side1(B/C) 자격자.
+    @Test fun `SP-01 simple all-in creates main and side pot`() {
+        val input = listOf(pc(0, 1_000L), pc(1, 4_000L), pc(2, 4_000L))
+        val r = SidePotCalculator.compute(input)
+        // L=1000: 1000*3=3000, eligible {0,1,2}
+        // L=4000: 3000*2=6000, eligible {1,2}
+        assertThat(r.pots).hasSize(2)
+        assertThat(r.pots[0].amount).isEqualTo(3_000L)
+        assertThat(r.pots[0].eligibleSeats).containsExactly(0, 1, 2)
+        assertThat(r.pots[1].amount).isEqualTo(6_000L)
+        assertThat(r.pots[1].eligibleSeats).containsExactly(1, 2)
+        assertThat(r.uncalledReturn).isEmpty()
+        assertThat(r.deadMoney).isEqualTo(0L)
+        assertConservation(input, r)
+    }
+
+    // SP-02: 다중 올인 — 4인, 서로 다른 스택 A<B<C<D 전원 올인 → main + side1 + side2 + side3(uncalled).
+    @Test fun `SP-02 multi all-in creates chain of side pots`() {
+        val input = listOf(pc(0, 500L), pc(1, 1_200L), pc(2, 2_500L), pc(3, 4_000L))
+        val r = SidePotCalculator.compute(input)
+        // L=500:  500*4=2000, eligible {0,1,2,3}
+        // L=1200: 700*3=2100, eligible {1,2,3}
+        // L=2500: 1300*2=2600, eligible {2,3}
+        // L=4000: 1500*1=1500, uncalled → seat 3
+        assertThat(r.pots).hasSize(3)
+        assertThat(r.pots[0].amount).isEqualTo(2_000L)
+        assertThat(r.pots[0].eligibleSeats).containsExactly(0, 1, 2, 3)
+        assertThat(r.pots[1].amount).isEqualTo(2_100L)
+        assertThat(r.pots[1].eligibleSeats).containsExactly(1, 2, 3)
+        assertThat(r.pots[2].amount).isEqualTo(2_600L)
+        assertThat(r.pots[2].eligibleSeats).containsExactly(2, 3)
+        assertThat(r.uncalledReturn).containsExactly(3, 1_500L)
+        assertThat(r.deadMoney).isEqualTo(0L)
+        assertConservation(input, r)
+    }
+
+    // SP-03: 완전 일치 콜 — 올인 없이 전원 같은 금액 → 단일 메인팟만.
+    @Test fun `SP-03 uniform call yields single main pot`() {
+        val input = listOf(pc(0, 800L), pc(1, 800L), pc(2, 800L))
+        val r = SidePotCalculator.compute(input)
+        assertThat(r.pots).hasSize(1)
+        assertThat(r.pots[0].amount).isEqualTo(2_400L)
+        assertThat(r.pots[0].eligibleSeats).containsExactly(0, 1, 2)
+        assertThat(r.uncalledReturn).isEmpty()
+        assertThat(r.deadMoney).isEqualTo(0L)
+        assertConservation(input, r)
+    }
+
+    // SP-04: 조기 폴드 — A 가 작게 커밋 후 폴드, 나머지 B/C/D 올인(금액 다름).
+    // A 커밋은 main 팟에 포함되지만 eligible 에서 빠짐.
+    @Test fun `SP-04 early fold contributes chips but not eligibility`() {
+        val input = listOf(
+            pc(0, 300L, folded = true),
+            pc(1, 1_000L), pc(2, 2_500L), pc(3, 4_000L),
+        )
+        val r = SidePotCalculator.compute(input)
+        // L=300:  300*4=1200, eligible {1,2,3} (A 폴드)
+        // L=1000: 700*3=2100, eligible {1,2,3}
+        // L=2500: 1500*2=3000, eligible {2,3}
+        // L=4000: 1500*1=1500, uncalled → seat 3
+        assertThat(r.pots).hasSize(3)
+        assertThat(r.pots[0].amount).isEqualTo(1_200L)
+        assertThat(r.pots[0].eligibleSeats).containsExactly(1, 2, 3)
+        assertThat(r.pots[1].amount).isEqualTo(2_100L)
+        assertThat(r.pots[1].eligibleSeats).containsExactly(1, 2, 3)
+        assertThat(r.pots[2].amount).isEqualTo(3_000L)
+        assertThat(r.pots[2].eligibleSeats).containsExactly(2, 3)
+        assertThat(r.uncalledReturn).containsExactly(3, 1_500L)
+        assertThat(r.deadMoney).isEqualTo(0L)
+        assertConservation(input, r)
+    }
+
+    // SP-05: 자기 혼자 적립 환급 — 마지막 레이저의 unmatched 부분이 uncalledReturn 으로 돌려짐.
+    @Test fun `SP-05 last raiser unmatched layer is uncalled return`() {
+        val input = listOf(pc(0, 600L), pc(1, 600L), pc(2, 2_000L))
+        val r = SidePotCalculator.compute(input)
+        // L=600:  600*3=1800, eligible {0,1,2}
+        // L=2000: 1400*1=1400, uncalled → seat 2
+        assertThat(r.pots).hasSize(1)
+        assertThat(r.pots[0].amount).isEqualTo(1_800L)
+        assertThat(r.pots[0].eligibleSeats).containsExactly(0, 1, 2)
+        assertThat(r.uncalledReturn).containsExactly(2, 1_400L)
+        assertThat(r.deadMoney).isEqualTo(0L)
+        assertConservation(input, r)
+    }
+
+    // SP-06: 자격자 0 팟 (dead money) — 어떤 layer 의 eligible 가 전부 폴드/자격 없음.
+    // 폴드 A 가 최고 커밋 → 상위 layer 는 eligible 0 → dead money 로 적립.
+    @Test fun `SP-06 layer with zero eligible becomes dead money`() {
+        val input = listOf(
+            pc(0, 3_000L, folded = true),
+            pc(1, 1_000L), pc(2, 1_000L),
+        )
+        val r = SidePotCalculator.compute(input)
+        // L=1000: 1000*3=3000, eligible {1,2}
+        // L=3000: 2000*1=2000, 유일 기여자 seat 0 이지만 folded → eligible 공집합 → dead money
+        assertThat(r.pots).hasSize(1)
+        assertThat(r.pots[0].amount).isEqualTo(3_000L)
+        assertThat(r.pots[0].eligibleSeats).containsExactly(1, 2)
+        assertThat(r.uncalledReturn).isEmpty()
+        assertThat(r.deadMoney).isEqualTo(2_000L)
+        assertConservation(input, r)
+    }
+
+    // SP-07: heads-up 올인 — 2인 heads-up, 큰 스택이 작은 쪽 올인에 콜 → main + uncalled 환급.
+    @Test fun `SP-07 heads-up all-in with call produces uncalled return`() {
+        val input = listOf(pc(0, 1_200L), pc(1, 5_000L))
+        val r = SidePotCalculator.compute(input)
+        // L=1200: 1200*2=2400, eligible {0,1}
+        // L=5000: 3800*1=3800, uncalled → seat 1
+        assertThat(r.pots).hasSize(1)
+        assertThat(r.pots[0].amount).isEqualTo(2_400L)
+        assertThat(r.pots[0].eligibleSeats).containsExactly(0, 1)
+        assertThat(r.uncalledReturn).containsExactly(1, 3_800L)
+        assertThat(r.deadMoney).isEqualTo(0L)
+        assertConservation(input, r)
+    }
+
+    // SP-08: 앤티 + 7-stud bring-in 올인 — 앤티 1 ×3인 + bring-in 플레이어(seat2) 스택 한계 3으로 올인.
+    // seat 0/1 은 부유 스택으로 이후 스트릿에서 추가 레이즈까지 진행 → main + side pot 발생.
+    // v1.1 §3.1: committed = 앤티 + 모든 스트릿 베팅 합계. SidePotCalculator 는 모드 무관.
+    // 커밋 내역: seat2 = 앤티1+bring-in2 = 3 (올인), seat0/1 = 앤티1 + 콜업 2 + 이후 레이즈 20 = 23.
+    @Test fun `SP-08 seven-stud ante plus bring-in all-in`() {
+        val input = listOf(
+            pc(0, 23L),
+            pc(1, 23L),
+            pc(2, 3L), // bring-in 올인, 살아있음
+        )
+        val r = SidePotCalculator.compute(input)
+        // L=3:  3*3 = 9,  eligible {0,1,2} (main pot — bring-in 플레이어 자격)
+        // L=23: 20*2 = 40, eligible {0,1}   (side pot — 이후 스트릿 베팅)
+        assertThat(r.pots).hasSize(2)
+        assertThat(r.pots[0].amount).isEqualTo(9L)
+        assertThat(r.pots[0].eligibleSeats).containsExactly(0, 1, 2)
+        assertThat(r.pots[1].amount).isEqualTo(40L)
+        assertThat(r.pots[1].eligibleSeats).containsExactly(0, 1)
+        assertThat(r.uncalledReturn).isEmpty()
+        assertThat(r.deadMoney).isEqualTo(0L)
+        assertConservation(input, r)
+    }
 }
