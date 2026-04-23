@@ -1,11 +1,16 @@
 package com.infocar.pokermaster.feature.table
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.FiniteAnimationSpec
+import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -46,6 +51,8 @@ import com.infocar.pokermaster.core.model.Rank
 import com.infocar.pokermaster.core.model.Suit
 import com.infocar.pokermaster.core.ui.theme.PokerMasterTheme
 import com.infocar.pokermaster.feature.table.a11y.A11yStrings
+import com.infocar.pokermaster.feature.table.anim.DealAnimationSpec
+import androidx.compose.ui.unit.IntOffset
 import kotlin.math.cos
 import kotlin.math.min
 import kotlin.math.sin
@@ -344,13 +351,33 @@ private fun HoleCardsRow(
             if (card == null && holeCards.isEmpty()) {
                 EmptyCardSlot()
             } else {
-                PlayingCard(
-                    card = card,
-                    faceDown = faceDown,
-                    modifier = Modifier
-                        .width(26.dp)
-                        .height(36.dp),
+                // Sprint3-C: 홀카드 딜 애니 — 카드 1장당 HOLE_CARD_STAGGER_MS 간격,
+                // 위에서 아래로 slide + fade. 좌표계 기반 덱→시트 이동은 M5 에서 고도화.
+                val transitionState = remember(card, faceDown) {
+                    MutableTransitionState(false).apply { targetState = true }
+                }
+                val slideSpec: FiniteAnimationSpec<IntOffset> = tween(
+                    durationMillis = DealAnimationSpec.HOLE_CARD_DURATION_MS,
+                    delayMillis = i * DealAnimationSpec.HOLE_CARD_STAGGER_MS,
+                    easing = FastOutSlowInEasing,
                 )
+                val fadeSpec: FiniteAnimationSpec<Float> = tween(
+                    durationMillis = DealAnimationSpec.HOLE_CARD_DURATION_MS,
+                    delayMillis = i * DealAnimationSpec.HOLE_CARD_STAGGER_MS,
+                )
+                AnimatedVisibility(
+                    visibleState = transitionState,
+                    enter = slideInVertically(animationSpec = slideSpec) { h -> -h } +
+                        fadeIn(animationSpec = fadeSpec),
+                ) {
+                    PlayingCard(
+                        card = card,
+                        faceDown = faceDown,
+                        modifier = Modifier
+                            .width(26.dp)
+                            .height(36.dp),
+                    )
+                }
             }
         }
     }
