@@ -27,6 +27,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -34,6 +36,7 @@ import com.infocar.pokermaster.core.model.Action
 import com.infocar.pokermaster.core.model.ActionType
 import com.infocar.pokermaster.core.ui.theme.PokerColors
 import com.infocar.pokermaster.core.ui.theme.PokerMasterTheme
+import com.infocar.pokermaster.feature.table.a11y.A11yStrings
 import kotlin.math.roundToLong
 
 /**
@@ -89,11 +92,13 @@ fun ActionBar(
         ) {
             // 폴드 — 항상 활성 (체크 가능 시 살짝 흐리게).
             val foldSoft = state.canCheck
+            val foldA11y = A11yStrings.actionButton(ActionType.FOLD)
             Button(
                 onClick = { onAction(Action(ActionType.FOLD)) },
                 modifier = Modifier
                     .weight(1f)
-                    .height(56.dp),
+                    .height(56.dp)
+                    .semantics { contentDescription = foldA11y },
                 colors = ButtonDefaults.buttonColors(
                     containerColor = if (foldSoft) PokerColors.Danger.copy(alpha = 0.7f) else PokerColors.Danger,
                     contentColor = Color.White,
@@ -115,6 +120,11 @@ fun ActionBar(
                 )
                 else -> stringResource(id = R.string.action_call)
             }
+            val middleA11y = when {
+                state.canCheck -> A11yStrings.actionButton(ActionType.CHECK)
+                state.canCall -> A11yStrings.actionButton(ActionType.CALL, toCall = state.callAmount)
+                else -> A11yStrings.actionButton(ActionType.CALL)
+            }
             Button(
                 onClick = {
                     if (state.canCheck) onAction(Action(ActionType.CHECK))
@@ -122,7 +132,8 @@ fun ActionBar(
                 },
                 modifier = Modifier
                     .weight(1f)
-                    .height(56.dp),
+                    .height(56.dp)
+                    .semantics { contentDescription = middleA11y },
                 enabled = middleEnabled,
                 colors = ButtonDefaults.buttonColors(
                     containerColor = MaterialTheme.colorScheme.surfaceVariant,
@@ -137,6 +148,10 @@ fun ActionBar(
                 stringResource(id = R.string.action_all_in)
             else
                 stringResource(id = R.string.action_raise_to, ChipFormat.format(raiseTotal))
+            val raiseA11y = if (raiseTotal >= state.maxRaiseTotal)
+                A11yStrings.actionButton(ActionType.ALL_IN, amount = raiseTotal)
+            else
+                A11yStrings.actionButton(ActionType.RAISE, amount = raiseTotal)
 
             Button(
                 onClick = {
@@ -152,7 +167,8 @@ fun ActionBar(
                 },
                 modifier = Modifier
                     .weight(1f)
-                    .height(56.dp),
+                    .height(56.dp)
+                    .semantics { contentDescription = raiseA11y },
                 enabled = state.canRaise,
                 colors = ButtonDefaults.buttonColors(
                     containerColor = PokerColors.Success,

@@ -39,6 +39,7 @@ import com.infocar.pokermaster.core.model.Rank
 import com.infocar.pokermaster.core.model.Suit
 import com.infocar.pokermaster.core.model.symbol
 import com.infocar.pokermaster.core.ui.theme.PokerMasterTheme
+import com.infocar.pokermaster.feature.table.a11y.A11yStrings
 
 /**
  * 플레잉 카드 컴포넌트. v1.1 §4.3 — 저작권 회피를 위해 자체 일러스트 없이
@@ -67,9 +68,9 @@ fun PlayingCard(
     val cornerRadius = 8.dp
 
     val semanticsLabel: String = when {
-        faceDown -> "뒷면 카드"
+        faceDown -> A11yStrings.hiddenCard()
         card == null -> "빈 카드 슬롯"
-        else -> "${card.rank.short}${card.suit.symbol}"
+        else -> A11yStrings.card(card)
     }
 
     // default size 를 먼저 선언한 뒤 호출자 modifier 로 override 가능하도록 체이닝.
