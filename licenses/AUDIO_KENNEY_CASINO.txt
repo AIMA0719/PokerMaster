@@ -1,0 +1,22 @@
+PokerMaster — Third-party audio asset notice
+=============================================
+
+The following .ogg files under feature/table/src/main/res/raw/ are sourced
+from the Kenney "Casino Audio" pack (version 1.1):
+
+  sfx_card_deal.ogg     (origin: card-slide-1.ogg)
+  sfx_chip_commit.ogg   (origin: chip-lay-1.ogg)
+  sfx_pot_sweep.ogg     (origin: chips-stack-3.ogg)
+  sfx_check.ogg         (origin: card-place-1.ogg)
+  sfx_fold.ogg          (origin: card-shove-2.ogg)
+  sfx_allin.ogg         (origin: chips-collide-1.ogg)
+  sfx_hand_win.ogg      (origin: chips-handle-2.ogg)
+
+Author:  Kenney Vleugels (Kenney.nl)
+Source:  https://kenney.nl/assets/casino-audio
+License: Creative Commons Zero (CC0)
+         http://creativecommons.org/publicdomain/zero/1.0/
+
+You may use these assets in personal and commercial projects.
+Credit (Kenney or www.kenney.nl) is nice but not mandatory — we include
+this notice as courtesy per the pack's recommendation.

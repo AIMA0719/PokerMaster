@@ -82,7 +82,21 @@ fun TableScreen(
     val settingsRepo = remember(context) { SettingsRepository(context) }
     val scope = rememberCoroutineScope()
     val haptic = remember(context) { HapticManager(context) }
-    val sound = remember(context) { SoundManager(context).apply { load(emptyMap()) } }
+    val sound = remember(context) {
+        SoundManager(context).apply {
+            load(
+                mapOf(
+                    SfxKind.CardDeal to R.raw.sfx_card_deal,
+                    SfxKind.ChipCommit to R.raw.sfx_chip_commit,
+                    SfxKind.PotSweep to R.raw.sfx_pot_sweep,
+                    SfxKind.Check to R.raw.sfx_check,
+                    SfxKind.Fold to R.raw.sfx_fold,
+                    SfxKind.AllIn to R.raw.sfx_allin,
+                    SfxKind.HandWin to R.raw.sfx_hand_win,
+                )
+            )
+        }
+    }
     DisposableEffect(sound) { onDispose { sound.release() } }
     val sfxPolicy by settingsRepo.sfxPolicy.collectAsState(initial = SfxPolicy.Default)
 
