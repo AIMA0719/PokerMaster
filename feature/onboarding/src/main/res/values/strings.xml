@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="onb_skip">건너뛰기</string>
+    <string name="onb_next">다음</string>
+    <string name="onb_done">시작하기</string>
+    <string name="onb_back">이전</string>
+    <string name="onb_welcome_title">포커마스터</string>
+    <string name="onb_welcome_subtitle">AI와 즐기는 한국식 포커</string>
+    <string name="onb_welcome_body">온라인 없이도 혼자서 진짜 같은 7포커와 홀덤을 즐기세요. 모든 것이 당신의 기기에서 작동합니다.</string>
+    <string name="onb_age_title">이용 안내</string>
+    <string name="onb_age_body">본 앱의 칩은 가상 점수이며 어떠한 환금·거래·결제도 불가합니다. 실제 금전을 대상으로 한 게임이 아닙니다.</string>
+    <string name="onb_age_check">만 12세 이상입니다.</string>
+    <string name="onb_nick_title">닉네임 설정</string>
+    <string name="onb_nick_hint">최대 12자</string>
+    <string name="onb_nick_error">1~12자 사이로 입력해 주세요.</string>
+    <string name="onb_perm_title">권한 안내</string>
+    <string name="onb_perm_body">• 인터넷: AI 모델 최초 다운로드에만 사용됩니다. 이후 비활성화 가능합니다.\n• 알림: 다운로드 진행 상태 표시에만 사용됩니다.\n\n개인정보는 수집되지 않으며 서버로 전송되지 않습니다.</string>
+</resources>

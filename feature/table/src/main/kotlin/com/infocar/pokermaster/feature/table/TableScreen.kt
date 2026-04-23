@@ -1,0 +1,256 @@
+package com.infocar.pokermaster.feature.table
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material3.Button
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.infocar.pokermaster.core.model.Action
+import com.infocar.pokermaster.core.model.ActionType
+import com.infocar.pokermaster.core.model.GameMode
+import com.infocar.pokermaster.core.model.GameState
+import com.infocar.pokermaster.core.model.PlayerState
+import com.infocar.pokermaster.core.model.Street
+import com.infocar.pokermaster.core.model.TableConfig
+import com.infocar.pokermaster.core.ui.theme.PokerMasterTheme
+
+/**
+ * 테이블 화면 최상위 Composable.
+ *
+ *  - [viewModel] 가 없으면(프리뷰) [stateOverride] 로 정적 렌더.
+ *  - 하위 컴포넌트: [SeatLayout] / [ActionBar] / [HandEndSheet] / [CardCommunityRow] (Phase-B 병렬 에이전트 구현).
+ */
+@Composable
+fun TableScreen(
+    mode: GameMode,
+    onExit: () -> Unit,
+    viewModel: TableViewModel = remember(mode) { TableViewModel.createDefault(mode) },
+) {
+    val state by viewModel.state.collectAsState()
+    TableContent(
+        state = state,
+        onAction = viewModel::onHumanAction,
+        onNextHand = viewModel::onNextHand,
+        onSurrender = viewModel::onSurrender,
+        onExit = onExit,
+    )
+}
+
+@Composable
+internal fun TableContent(
+    state: GameState,
+    onAction: OnAction,
+    onNextHand: () -> Unit,
+    onSurrender: () -> Unit,
+    onExit: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var menuOpen by remember { mutableStateOf(false) }
+    var confirmAllIn by remember { mutableStateOf<Pair<ActionType, Long>?>(null) }
+    val humanSeat = remember(state) { state.players.firstOrNull { it.isHuman }?.seat ?: 0 }
+    val actionBarState = remember(state) { TableUiMapper.mapActionBar(state, humanSeat) }
+    val handEndData = remember(state) { TableUiMapper.mapHandEnd(state) }
+
+    Scaffold(
+        modifier = modifier.fillMaxSize(),
+        containerColor = MaterialTheme.colorScheme.background,
+    ) { inner ->
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(inner)
+                .background(MaterialTheme.colorScheme.background),
+        ) {
+            // 1) 상단 바 (메뉴 + 폴백 배지 자리)
+            TopBar(
+                onOpenMenu = { menuOpen = true },
+                potLabel = ChipFormat.format(TableUiMapper.totalPot(state)),
+                street = state.street,
+                modifier = Modifier.align(Alignment.TopCenter).fillMaxWidth(),
+            )
+
+            // 2) 중앙 — 좌석 레이아웃 + 커뮤니티 카드 (SeatLayout / CardCommunityRow: Agent A·C)
+            Box(
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .fillMaxSize()
+                    .padding(top = 48.dp, bottom = 220.dp)
+            ) {
+                SeatLayout(
+                    players = state.players,
+                    btnSeat = state.btnSeat,
+                    toActSeat = state.toActSeat,
+                    humanSeat = humanSeat,
+                    modifier = Modifier.fillMaxSize(),
+                )
+                CardCommunityRow(
+                    community = state.community,
+                    modifier = Modifier.align(Alignment.Center),
+                )
+            }
+
+            // 3) 하단 — 액션바 (Agent B)
+            if (actionBarState != null) {
+                ActionBar(
+                    state = actionBarState,
+                    onAction = onAction,
+                    onRequestConfirm = { type, amount -> confirmAllIn = type to amount },
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .fillMaxWidth()
+                        .padding(12.dp),
+                )
+            } else if (state.pendingShowdown == null) {
+                WaitingForNpc(modifier = Modifier.align(Alignment.BottomCenter).padding(12.dp))
+            }
+
+            // 4) 핸드 종료 오버레이
+            if (handEndData != null) {
+                HandEndSheet(
+                    data = handEndData,
+                    onNext = onNextHand,
+                    onInsights = { /* M5 사고 과정 해설 */ },
+                    modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth(),
+                )
+            }
+        }
+
+        // 인게임 메뉴 바텀시트 (Phase-C 구성)
+        if (menuOpen) {
+            InGameMenuSheet(
+                onDismiss = { menuOpen = false },
+                onSurrender = { menuOpen = false; onSurrender() },
+                onExit = { menuOpen = false; onExit() },
+            )
+        }
+
+        // 베팅 2단계 확인 (Phase-C 구성)
+        confirmAllIn?.let { (type, amount) ->
+            BettingConfirmDialog(
+                type = type,
+                amount = amount,
+                onConfirm = {
+                    confirmAllIn = null
+                    onAction(Action(type, amount))
+                },
+                onCancel = { confirmAllIn = null },
+            )
+        }
+    }
+}
+
+@Composable
+private fun TopBar(
+    onOpenMenu: () -> Unit,
+    potLabel: String,
+    street: Street,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier.padding(horizontal = 8.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        IconButton(onClick = onOpenMenu) {
+            Icon(Icons.Default.Menu, contentDescription = "메뉴")
+        }
+        Spacer(Modifier.width(8.dp))
+        // 폴백 모드 배지 (Phase-C에서 조건부)
+        FallbackModeBadge()
+        Spacer(Modifier.weight(1f))
+        Column(horizontalAlignment = Alignment.End) {
+            Text(
+                text = stringResource(id = R.string.pot_label, potLabel),
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onBackground,
+            )
+            Text(
+                text = street.name,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f),
+            )
+        }
+        Spacer(Modifier.width(12.dp))
+    }
+}
+
+@Composable
+private fun WaitingForNpc(modifier: Modifier = Modifier) {
+    Surface(
+        modifier = modifier,
+        shape = RoundedCornerShape(20.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant,
+    ) {
+        Text(
+            text = stringResource(id = R.string.waiting_for_npc),
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+            style = MaterialTheme.typography.labelLarge,
+        )
+    }
+}
+
+// -------------------------------------------------------------------------
+// Preview
+// -------------------------------------------------------------------------
+
+@Preview(showBackground = true, heightDp = 720, widthDp = 360)
+@Composable
+private fun TableScreenPreview() {
+    val config = TableConfig(mode = GameMode.HOLDEM_NL, seats = 2)
+    val state = GameState(
+        mode = GameMode.HOLDEM_NL,
+        config = config,
+        stateVersion = 1L,
+        handIndex = 1L,
+        players = listOf(
+            PlayerState(seat = 0, nickname = "나", isHuman = true, chips = 9_950L, committedThisHand = 50L, committedThisStreet = 50L),
+            PlayerState(seat = 1, nickname = "프로", isHuman = false, personaId = "PRO", chips = 9_950L, committedThisHand = 50L, committedThisStreet = 50L),
+        ),
+        btnSeat = 0,
+        toActSeat = 0,
+        street = Street.PREFLOP,
+        community = emptyList(),
+        betToCall = 50L,
+        minRaise = 100L,
+    )
+    PokerMasterTheme {
+        TableContent(
+            state = state,
+            onAction = {},
+            onNextHand = {},
+            onSurrender = {},
+            onExit = {},
+        )
+    }
+}

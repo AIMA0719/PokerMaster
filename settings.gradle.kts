@@ -36,11 +36,13 @@ include(":core:ui")
 // Engine
 include(":engine:rules")        // M1
 include(":engine:decision")     // M2
+include(":engine:controller")   // M3 (M1 보강): GameStateReducer + AI driver
 // include(":engine:llm")       // M4
 
 // Feature
 include(":feature:lobby")       // M0: 빈 LobbyScreen
-// include(":feature:table")    // M3
+include(":feature:table")       // M3
+include(":feature:onboarding")  // M3 (v1.1 §1.2.B)
 // include(":feature:history")  // M5
 // include(":feature:training") // M5
 // include(":feature:settings") // M3+

@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="table_title">테이블</string>
+    <string name="action_fold">폴드</string>
+    <string name="action_check">체크</string>
+    <string name="action_call">콜</string>
+    <string name="action_raise">레이즈</string>
+    <string name="action_bet">벳</string>
+    <string name="action_all_in">올인</string>
+    <string name="action_call_with_amount">콜 %1$s</string>
+    <string name="action_raise_to">레이즈 %1$s</string>
+    <string name="quick_one_third">⅓ Pot</string>
+    <string name="quick_half">½ Pot</string>
+    <string name="quick_two_thirds">⅔ Pot</string>
+    <string name="quick_pot">Pot</string>
+    <string name="quick_all_in">All-in</string>
+    <string name="pot_label">팟 %1$s</string>
+    <string name="chip_suffix_k">K</string>
+    <string name="chip_suffix_m">M</string>
+    <string name="seat_btn">BTN</string>
+    <string name="seat_sb">SB</string>
+    <string name="seat_bb">BB</string>
+    <string name="badge_fold">FOLD</string>
+    <string name="badge_all_in">ALL-IN</string>
+    <string name="badge_you">YOU</string>
+    <string name="badge_fallback_ai">기본 AI 모드</string>
+    <string name="hand_end_next">다음 핸드</string>
+    <string name="hand_end_insights">사고 과정 보기</string>
+    <string name="hand_end_winner">승자</string>
+    <string name="hand_end_single_winner">%1$s 단독 승</string>
+    <string name="hand_end_pot_main">메인 팟</string>
+    <string name="hand_end_pot_side">사이드 팟 %1$d</string>
+    <string name="hand_end_uncalled_returned">콜 안 받은 베팅 환급</string>
+    <string name="betting_confirm_title">정말 진행하시겠어요?</string>
+    <string name="betting_confirm_all_in">올인 하시겠습니까?</string>
+    <string name="betting_confirm_large">%1$s 베팅하시겠습니까?</string>
+    <string name="betting_confirm_yes">확인</string>
+    <string name="betting_confirm_no">취소</string>
+    <string name="menu_rules">규칙</string>
+    <string name="menu_help">도움말</string>
+    <string name="menu_surrender">핸드 항복</string>
+    <string name="menu_exit">테이블 나가기</string>
+    <string name="waiting_for_npc">상대 플레이어가 생각 중…</string>
+</resources>
