@@ -47,6 +47,9 @@ import com.infocar.pokermaster.core.model.PlayerState
 import com.infocar.pokermaster.core.model.Street
 import com.infocar.pokermaster.core.model.TableConfig
 import com.infocar.pokermaster.core.ui.theme.PokerMasterTheme
+import com.infocar.pokermaster.feature.table.guide.GuideOverlay
+import com.infocar.pokermaster.feature.table.guide.GuideSettings
+import com.infocar.pokermaster.feature.table.guide.GuideStep
 import com.infocar.pokermaster.feature.table.sfx.HapticManager
 import com.infocar.pokermaster.feature.table.sfx.SfxKind
 import com.infocar.pokermaster.feature.table.sfx.SfxPolicy
@@ -97,13 +100,53 @@ fun TableScreen(
         viewModel.onHumanAction(action)
     }
 
-    TableContent(
-        state = state,
-        onAction = onHumanActionWithSfx,
-        onNextHand = viewModel::onNextHand,
-        onSurrender = viewModel::onSurrender,
-        onExit = onExit,
-    )
+    // Guide overlay — Sprint2-G Phase 4. 영속화는 Sprint3 DataStore.
+    var guideSettings by remember { mutableStateOf(GuideSettings.Default) }
+    var currentGuideStep by remember {
+        mutableStateOf<GuideStep?>(
+            if (GuideSettings.Default.guideModeEnabled) GuideSettings.Default.initialStep() else null
+        )
+    }
+    val onToggleGuide: () -> Unit = {
+        if (guideSettings.guideModeEnabled) {
+            guideSettings = guideSettings.disable()
+            currentGuideStep = null
+        } else {
+            guideSettings = guideSettings.enable()
+            currentGuideStep = guideSettings.initialStep()
+        }
+    }
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        TableContent(
+            state = state,
+            onAction = onHumanActionWithSfx,
+            onNextHand = viewModel::onNextHand,
+            onSurrender = viewModel::onSurrender,
+            onExit = onExit,
+            guideEnabled = guideSettings.guideModeEnabled,
+            onToggleGuide = onToggleGuide,
+        )
+        currentGuideStep?.let { step ->
+            GuideOverlay(
+                step = step,
+                onNext = {
+                    currentGuideStep = when (step) {
+                        is GuideStep.Welcome -> {
+                            guideSettings = guideSettings.markWelcomeSeen()
+                            GuideStep.ActionHint(GuideSettings.DEFAULT_HINT)
+                        }
+                        is GuideStep.ActionHint -> null
+                        is GuideStep.Closing -> null
+                    }
+                },
+                onDismiss = {
+                    guideSettings = guideSettings.disable()
+                    currentGuideStep = null
+                },
+            )
+        }
+    }
     resumePrompt?.let { prompt ->
         ResumeDialog(
             prompt = prompt,
@@ -122,6 +165,8 @@ internal fun TableContent(
     onSurrender: () -> Unit,
     onExit: () -> Unit,
     modifier: Modifier = Modifier,
+    guideEnabled: Boolean = true,
+    onToggleGuide: () -> Unit = {},
 ) {
     var menuOpen by remember { mutableStateOf(false) }
     var confirmAllIn by remember { mutableStateOf<Pair<ActionType, Long>?>(null) }
@@ -199,6 +244,8 @@ internal fun TableContent(
                 onDismiss = { menuOpen = false },
                 onSurrender = { menuOpen = false; onSurrender() },
                 onExit = { menuOpen = false; onExit() },
+                guideEnabled = guideEnabled,
+                onToggleGuide = { menuOpen = false; onToggleGuide() },
             )
         }
 

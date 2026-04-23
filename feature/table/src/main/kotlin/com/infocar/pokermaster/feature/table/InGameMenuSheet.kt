@@ -10,6 +10,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ExitToApp
 import androidx.compose.material.icons.filled.Flag
 import androidx.compose.material.icons.filled.HelpOutline
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.MenuBook
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -42,6 +43,8 @@ fun InGameMenuSheet(
     onDismiss: () -> Unit,
     onSurrender: () -> Unit,
     onExit: () -> Unit,
+    guideEnabled: Boolean = true,
+    onToggleGuide: () -> Unit = {},
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
@@ -77,6 +80,18 @@ fun InGameMenuSheet(
                 label = stringResource(id = R.string.menu_help),
                 tint = MaterialTheme.colorScheme.onSurface,
                 onClick = onDismiss,
+            )
+            MenuRow(
+                icon = {
+                    Icon(
+                        imageVector = Icons.Default.Info,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurface,
+                    )
+                },
+                label = if (guideEnabled) "가이드 모드 끄기" else "가이드 모드 켜기",
+                tint = MaterialTheme.colorScheme.onSurface,
+                onClick = onToggleGuide,
             )
             MenuRow(
                 icon = {
