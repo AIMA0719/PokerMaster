@@ -1,5 +1,7 @@
 package com.infocar.pokermaster.core.model
 
+import kotlinx.serialization.Serializable
+
 /**
  * 게임 상태 스냅샷. immutable. Reducer 는 이 인스턴스를 copy 해 신규 상태 산출.
  *
@@ -15,6 +17,7 @@ package com.infocar.pokermaster.core.model
  *  - [lastAggressorSeat]: 마지막 bet/raise 좌석 (헤즈업·헤드업 UI 마커).
  *  - [pendingShowdown]: SHOWDOWN 시 payouts 결과 (UI 가 애니메이션 후 applyShowdown 으로 반영).
  */
+@Serializable
 data class GameState(
     val mode: GameMode,
     val config: TableConfig,
@@ -60,6 +63,7 @@ data class GameState(
  *  - [uncalledReturn]: 자기 혼자 적립한 layer 환급 (v1.1 §3.1).
  *  - [deadMoney]: 자격자 0 layer (사라진 칩 — 통계용).
  */
+@Serializable
 data class ShowdownSummary(
     val bestHands: Map<Int, ShowdownHandInfo>,
     val payouts: Map<Int, Long>,
@@ -70,12 +74,14 @@ data class ShowdownSummary(
     val rngClientSeedHex: String,
 )
 
+@Serializable
 data class ShowdownHandInfo(
     val seat: Int,
     val categoryName: String,   // "풀하우스" 등 localizedish
     val bestFive: List<Card>,   // UI 하이라이트
 )
 
+@Serializable
 data class PotSummary(
     val amount: Long,
     val eligibleSeats: Set<Int>,

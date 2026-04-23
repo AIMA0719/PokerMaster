@@ -2,6 +2,7 @@ plugins {
     alias(libs.plugins.pokermaster.android.library)
     alias(libs.plugins.pokermaster.android.compose)
     alias(libs.plugins.pokermaster.android.hilt)
+    alias(libs.plugins.kotlin.serialization)
 }
 
 android {
@@ -22,6 +23,8 @@ dependencies {
     implementation(libs.androidx.hilt.navigation.compose)
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.androidx.compose.material.icons.extended)
+    implementation(libs.androidx.datastore.preferences)
+    implementation(libs.kotlinx.serialization.json)
 
     testImplementation(libs.junit)
     testImplementation(libs.truth)

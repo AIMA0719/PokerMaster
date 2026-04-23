@@ -19,19 +19,36 @@ class GameController(
     initialPlayers: List<PlayerState>,
     private val aiDriver: AiDriver = AiDriver(),
     private val rngSupplier: (Long) -> Rng = { nonce -> Rng.create(nonce) },
+    /**
+     * Resume 복원 경로 — [state] 와 [rng] 를 주입받아 기존 핸드 중간 상태에서 재개.
+     *  `null` 이면 새 핸드를 [HoldemReducer.startHand] 로 시작.
+     */
+    resumeFrom: ResumeSeed? = null,
 ) {
-    private var currentRng: Rng = rngSupplier(INITIAL_HAND_INDEX)
+    private var currentRng: Rng
+    private var _state: GameState
 
-    private var _state: GameState = HoldemReducer.startHand(
-        config = config,
-        players = initialPlayers,
-        prevBtnSeat = null,
-        rng = currentRng,
-        handIndex = INITIAL_HAND_INDEX,
-        startingVersion = GameState.INITIAL_VERSION,
-    )
+    init {
+        if (resumeFrom != null) {
+            currentRng = resumeFrom.rng
+            _state = resumeFrom.state
+        } else {
+            currentRng = rngSupplier(INITIAL_HAND_INDEX)
+            _state = HoldemReducer.startHand(
+                config = config,
+                players = initialPlayers,
+                prevBtnSeat = null,
+                rng = currentRng,
+                handIndex = INITIAL_HAND_INDEX,
+                startingVersion = GameState.INITIAL_VERSION,
+            )
+        }
+    }
 
     val state: GameState get() = _state
+
+    /** 현재 핸드의 Rng (snapshot 시 seed 기록용). */
+    val rng: Rng get() = currentRng
 
     /** 사람 플레이어의 액션 적용. toAct 가 인간이 아니면 실패. */
     fun humanAct(action: Action): GameState {
@@ -87,3 +104,9 @@ class GameController(
         private const val INITIAL_HAND_INDEX: Long = 1L
     }
 }
+
+/** Resume 생성자 주입 시드. */
+data class ResumeSeed(
+    val state: GameState,
+    val rng: Rng,
+)

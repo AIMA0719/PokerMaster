@@ -93,8 +93,15 @@ fun AppNav() {
 
 @Composable
 private fun SplashScreen(onReady: () -> Unit) {
-    // M0: 단순 800ms 지연. 추후 M4 에서 모델 워밍업 / RNG 자가검증 / DB 점검 추가.
+    val ctx = LocalContext.current
+    // v1.1 §1.2.O 단말 사양 핑거프린팅: Splash 에서 1회 측정 후 Mid 이하면 안내 Toast.
     LaunchedEffect(Unit) {
+        val tier = DeviceFingerprint.classify(ctx)
+        if (tier == DeviceTier.MID || tier == DeviceTier.LOW) {
+            android.widget.Toast
+                .makeText(ctx, DeviceFingerprint.label(tier), android.widget.Toast.LENGTH_LONG)
+                .show()
+        }
         delay(800L)
         onReady()
     }

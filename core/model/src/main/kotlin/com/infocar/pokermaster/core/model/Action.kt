@@ -1,5 +1,7 @@
 package com.infocar.pokermaster.core.model
 
+import kotlinx.serialization.Serializable
+
 /**
  * 플레이어 액션. [type] 이 베팅성(CALL/BET/RAISE/ALL_IN/BRING_IN/COMPLETE) 일 때만 [amount] 가 의미.
  *
@@ -10,6 +12,7 @@ package com.infocar.pokermaster.core.model
  *
  * 모든 적법성 검증은 [com.infocar.pokermaster.engine.controller] 의 Reducer 가 담당.
  */
+@Serializable
 data class Action(
     val type: ActionType,
     val amount: Long = 0L,

@@ -1,5 +1,7 @@
 package com.infocar.pokermaster.core.model
 
+import kotlinx.serialization.Serializable
+
 /**
  * 테이블 정적 설정 — 핸드 시작 전 확정, 핸드 진행 중 변경 없음.
  *
@@ -9,6 +11,7 @@ package com.infocar.pokermaster.core.model
  *  - [bringIn]: 7스터드 브링인. 홀덤은 0.
  *  - [minChipsToSit]: 기본 스택 (파산 리셋 용). v1 기본 10,000 (v1.1 §4.7).
  */
+@Serializable
 data class TableConfig(
     val mode: GameMode,
     val seats: Int,

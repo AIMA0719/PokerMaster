@@ -1,5 +1,7 @@
 package com.infocar.pokermaster.core.model
 
+import kotlinx.serialization.Serializable
+
 /**
  * 좌석별 플레이어 상태. immutable — reducer 가 매 이벤트마다 copy 해서 새 상태 산출.
  *
@@ -13,6 +15,7 @@ package com.infocar.pokermaster.core.model
  *  - [folded]: 핸드 폐기 여부.
  *  - [allIn]: 잔여 stack 0 + 활성 여부.
  */
+@Serializable
 data class PlayerState(
     val seat: Int,
     val nickname: String,

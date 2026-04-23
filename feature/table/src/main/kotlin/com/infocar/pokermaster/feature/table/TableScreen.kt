@@ -33,6 +33,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -56,9 +57,13 @@ import com.infocar.pokermaster.core.ui.theme.PokerMasterTheme
 fun TableScreen(
     mode: GameMode,
     onExit: () -> Unit,
-    viewModel: TableViewModel = remember(mode) { TableViewModel.createDefault(mode) },
+    viewModel: TableViewModel = run {
+        val ctx = LocalContext.current.applicationContext
+        remember(mode) { TableViewModel.createDefault(ctx, mode) }
+    },
 ) {
     val state by viewModel.state.collectAsState()
+    val resumePrompt by viewModel.resumePrompt.collectAsState()
     TableContent(
         state = state,
         onAction = viewModel::onHumanAction,
@@ -66,6 +71,14 @@ fun TableScreen(
         onSurrender = viewModel::onSurrender,
         onExit = onExit,
     )
+    resumePrompt?.let { prompt ->
+        ResumeDialog(
+            prompt = prompt,
+            onResume = viewModel::onResumeAccept,
+            onDiscard = { viewModel.onResumeDismiss(discard = true) },
+            onCancel = { viewModel.onResumeDismiss(discard = false) },
+        )
+    }
 }
 
 @Composable
