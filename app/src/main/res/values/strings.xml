@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 앱 식별자 (런처/시스템 노출). 모듈별 화면 텍스트는 각 feature 모듈의 strings.xml 에 분리. -->
+    <string name="app_name">포커마스터</string>
+
+    <!-- Splash (M0 임시) -->
+    <string name="splash_title">포커마스터</string>
+    <string name="splash_loading">준비 중…</string>
+
+    <!-- Common (전역에서 재사용) -->
+    <string name="action_start">시작</string>
+    <string name="action_cancel">취소</string>
+    <string name="action_ok">확인</string>
+    <string name="action_back">뒤로</string>
+</resources>

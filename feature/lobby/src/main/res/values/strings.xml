@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="lobby_title">포커마스터</string>
+    <string name="lobby_subtitle">AI와 즐기는 한국식 포커</string>
+    <string name="mode_seven_stud">7카드 스터드</string>
+    <string name="mode_seven_stud_hi_lo">하이로우 (8 or better)</string>
+    <string name="mode_holdem">텍사스 홀덤</string>
+</resources>

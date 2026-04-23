@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Compose 사용. 시스템 단계 테마는 Material3 기본 + 상태바/네비바만 처리 -->
+    <style name="Theme.PokerMaster" parent="android:Theme.Material.Light.NoActionBar" />
+</resources>

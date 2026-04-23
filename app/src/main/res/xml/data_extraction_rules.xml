@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- v1.1 §5.7: 모델 디렉토리 백업 제외 (구글 드라이브 25MB 한도 초과 방지) -->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="external" path="models/" />
+        <exclude domain="file" path="crash/" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="external" path="models/" />
+    </device-transfer>
+</data-extraction-rules>
