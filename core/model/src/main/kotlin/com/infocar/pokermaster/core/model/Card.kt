@@ -10,13 +10,13 @@ enum class Suit { CLUB, DIAMOND, HEART, SPADE }
  * 카드 끗수. ordinal 이 작을수록 약함.
  * 백스트레이트(A-2-3-4-5) 등 특수 처리는 HandEvaluator 내부에서 수행.
  */
-enum class Rank(val short: String) {
-    TWO("2"), THREE("3"), FOUR("4"), FIVE("5"), SIX("6"),
-    SEVEN("7"), EIGHT("8"), NINE("9"), TEN("T"),
-    JACK("J"), QUEEN("Q"), KING("K"), ACE("A");
+enum class Rank(val short: String, val value: Int) {
+    TWO("2", 2), THREE("3", 3), FOUR("4", 4), FIVE("5", 5), SIX("6", 6),
+    SEVEN("7", 7), EIGHT("8", 8), NINE("9", 9), TEN("T", 10),
+    JACK("J", 11), QUEEN("Q", 12), KING("K", 13), ACE("A", 14);
 
     companion object {
-        val LOW_ACE_VALUE: Int = 1   // 백스트레이트/로우에서 사용
+        val LOW_ACE_VALUE: Int = 1   // 백스트레이트/로우에서 사용 (A → 1 매핑)
         val HIGH_ACE_VALUE: Int = 14
     }
 }

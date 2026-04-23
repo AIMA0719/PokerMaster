@@ -34,7 +34,7 @@ include(":core:ui")
 // include(":core:data")        // M1: Room 들어갈 때 활성화
 
 // Engine
-// include(":engine:rules")     // M1
+include(":engine:rules")        // M1
 // include(":engine:decision")  // M2
 // include(":engine:llm")       // M4
 
