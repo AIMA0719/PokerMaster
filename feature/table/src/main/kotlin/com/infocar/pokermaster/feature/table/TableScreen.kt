@@ -24,6 +24,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -50,10 +51,13 @@ import com.infocar.pokermaster.core.ui.theme.PokerMasterTheme
 import com.infocar.pokermaster.feature.table.guide.GuideOverlay
 import com.infocar.pokermaster.feature.table.guide.GuideSettings
 import com.infocar.pokermaster.feature.table.guide.GuideStep
+import com.infocar.pokermaster.feature.table.settings.SettingsRepository
 import com.infocar.pokermaster.feature.table.sfx.HapticManager
 import com.infocar.pokermaster.feature.table.sfx.SfxKind
 import com.infocar.pokermaster.feature.table.sfx.SfxPolicy
 import com.infocar.pokermaster.feature.table.sfx.SoundManager
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 
 /**
  * 테이블 화면 최상위 Composable.
@@ -73,12 +77,14 @@ fun TableScreen(
     val state by viewModel.state.collectAsState()
     val resumePrompt by viewModel.resumePrompt.collectAsState()
 
-    // SFX/Haptic — Sprint2-G Phase 3. 정책 토글 UI 는 Sprint3 에서 DataStore 와 함께.
+    // SFX/Haptic — Sprint2-G Phase 3 + Sprint3-A DataStore.
     val context = LocalContext.current
+    val settingsRepo = remember(context) { SettingsRepository(context) }
+    val scope = rememberCoroutineScope()
     val haptic = remember(context) { HapticManager(context) }
     val sound = remember(context) { SoundManager(context).apply { load(emptyMap()) } }
     DisposableEffect(sound) { onDispose { sound.release() } }
-    val sfxPolicy by remember { mutableStateOf(SfxPolicy.Default) }
+    val sfxPolicy by settingsRepo.sfxPolicy.collectAsState(initial = SfxPolicy.Default)
 
     val onHumanActionWithSfx: OnAction = { action ->
         if (sfxPolicy.hapticEnabled) {
@@ -100,21 +106,18 @@ fun TableScreen(
         viewModel.onHumanAction(action)
     }
 
-    // Guide overlay — Sprint2-G Phase 4. 영속화는 Sprint3 DataStore.
-    var guideSettings by remember { mutableStateOf(GuideSettings.Default) }
-    var currentGuideStep by remember {
-        mutableStateOf<GuideStep?>(
-            if (GuideSettings.Default.guideModeEnabled) GuideSettings.Default.initialStep() else null
-        )
+    // Guide overlay — Sprint2-G Phase 4 + Sprint3-A DataStore.
+    val guideSettings by settingsRepo.guideSettings.collectAsState(initial = GuideSettings.Default)
+    var currentGuideStep by remember { mutableStateOf<GuideStep?>(null) }
+    // 최초 guideSettings 도달 시 한 번만 초기 step 결정 (이후 토글은 명시적으로 처리).
+    LaunchedEffect(Unit) {
+        val first = settingsRepo.guideSettings.first()
+        currentGuideStep = if (first.guideModeEnabled) first.initialStep() else null
     }
     val onToggleGuide: () -> Unit = {
-        if (guideSettings.guideModeEnabled) {
-            guideSettings = guideSettings.disable()
-            currentGuideStep = null
-        } else {
-            guideSettings = guideSettings.enable()
-            currentGuideStep = guideSettings.initialStep()
-        }
+        val next = if (guideSettings.guideModeEnabled) guideSettings.disable() else guideSettings.enable()
+        scope.launch { settingsRepo.setGuideSettings(next) }
+        currentGuideStep = if (next.guideModeEnabled) next.initialStep() else null
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -133,7 +136,7 @@ fun TableScreen(
                 onNext = {
                     currentGuideStep = when (step) {
                         is GuideStep.Welcome -> {
-                            guideSettings = guideSettings.markWelcomeSeen()
+                            scope.launch { settingsRepo.setGuideSettings(guideSettings.markWelcomeSeen()) }
                             GuideStep.ActionHint(GuideSettings.DEFAULT_HINT)
                         }
                         is GuideStep.ActionHint -> null
@@ -141,7 +144,7 @@ fun TableScreen(
                     }
                 },
                 onDismiss = {
-                    guideSettings = guideSettings.disable()
+                    scope.launch { settingsRepo.setGuideSettings(guideSettings.disable()) }
                     currentGuideStep = null
                 },
             )
