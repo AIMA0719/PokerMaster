@@ -7,6 +7,8 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <!-- 다운로드 진행률 알림 (Android 13+) -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Sprint2-G Phase 3: HapticManager (액션/칩/승리 진동) -->
+    <uses-permission android:name="android.permission.VIBRATE" />
 
     <application
         android:name=".PokerMasterApp"

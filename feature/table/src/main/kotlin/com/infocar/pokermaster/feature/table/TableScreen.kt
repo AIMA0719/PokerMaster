@@ -23,6 +23,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -46,6 +47,10 @@ import com.infocar.pokermaster.core.model.PlayerState
 import com.infocar.pokermaster.core.model.Street
 import com.infocar.pokermaster.core.model.TableConfig
 import com.infocar.pokermaster.core.ui.theme.PokerMasterTheme
+import com.infocar.pokermaster.feature.table.sfx.HapticManager
+import com.infocar.pokermaster.feature.table.sfx.SfxKind
+import com.infocar.pokermaster.feature.table.sfx.SfxPolicy
+import com.infocar.pokermaster.feature.table.sfx.SoundManager
 
 /**
  * 테이블 화면 최상위 Composable.
@@ -64,9 +69,37 @@ fun TableScreen(
 ) {
     val state by viewModel.state.collectAsState()
     val resumePrompt by viewModel.resumePrompt.collectAsState()
+
+    // SFX/Haptic — Sprint2-G Phase 3. 정책 토글 UI 는 Sprint3 에서 DataStore 와 함께.
+    val context = LocalContext.current
+    val haptic = remember(context) { HapticManager(context) }
+    val sound = remember(context) { SoundManager(context).apply { load(emptyMap()) } }
+    DisposableEffect(sound) { onDispose { sound.release() } }
+    val sfxPolicy by remember { mutableStateOf(SfxPolicy.Default) }
+
+    val onHumanActionWithSfx: OnAction = { action ->
+        if (sfxPolicy.hapticEnabled) {
+            when (action.type) {
+                ActionType.RAISE, ActionType.ALL_IN, ActionType.BET,
+                ActionType.COMPLETE, ActionType.BRING_IN -> haptic.onChipCommit()
+                else -> haptic.onAction()
+            }
+        }
+        if (sfxPolicy.soundEnabled) {
+            val kind = when (action.type) {
+                ActionType.CHECK -> SfxKind.Check
+                ActionType.FOLD -> SfxKind.Fold
+                ActionType.ALL_IN -> SfxKind.AllIn
+                else -> SfxKind.ChipCommit
+            }
+            sound.play(kind)
+        }
+        viewModel.onHumanAction(action)
+    }
+
     TableContent(
         state = state,
-        onAction = viewModel::onHumanAction,
+        onAction = onHumanActionWithSfx,
         onNextHand = viewModel::onNextHand,
         onSurrender = viewModel::onSurrender,
         onExit = onExit,
