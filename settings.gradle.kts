@@ -37,7 +37,7 @@ include(":core:ui")
 include(":engine:rules")        // M1
 include(":engine:decision")     // M2
 include(":engine:controller")   // M3 (M1 보강): GameStateReducer + AI driver
-// include(":engine:llm")       // M4
+include(":engine:llm")          // M4-Phase2: llama.cpp JNI
 
 // Feature
 include(":feature:lobby")       // M0: 빈 LobbyScreen
