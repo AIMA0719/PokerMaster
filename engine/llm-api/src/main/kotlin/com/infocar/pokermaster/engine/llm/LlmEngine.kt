@@ -38,4 +38,29 @@ interface LlmEngine {
      * 알 수 없는 런타임 타입의 핸들 (외부에서 직접 구현한 경우) 은 `IllegalArgumentException`.
      */
     suspend fun unloadModel(handle: ModelHandle)
+
+    /**
+     * 입력 [text] 를 모델 토크나이저로 분해. 기본적으로 BOS 자동 추가 (모델이 요구 시).
+     * 빈 문자열 → 빈 `IntArray`.
+     */
+    suspend fun tokenize(handle: ModelHandle, text: String): IntArray
+
+    /**
+     * 토큰 배열을 문자열로 복원 (subword piece 누적). special token 은 제거.
+     */
+    suspend fun detokenize(handle: ModelHandle, tokens: IntArray): String
+
+    /**
+     * [promptTokens] 를 컨텍스트에 decode 한 뒤 [GenerationConfig.maxNewTokens] 개까지 샘플링.
+     * EOS/EOG 토큰 만나면 조기 종료. 반환은 **프롬프트 제외** 생성된 토큰만.
+     *
+     * 현재 구현은 단일 턴 (warmup/cancel/streaming 은 Phase3c-II/Phase4). 동일 핸들로 재호출
+     * 하면 KV cache 에 이어 append 되지 않고 clean reset 을 가정하므로, 연속 턴 대화는
+     * Phase3c-II 에서 별도 API (예: `chat(handle, messages)`) 로 노출.
+     */
+    suspend fun generate(
+        handle: ModelHandle,
+        promptTokens: IntArray,
+        config: GenerationConfig = GenerationConfig(),
+    ): IntArray
 }

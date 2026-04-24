@@ -102,13 +102,53 @@ class LlamaCppEngine private constructor(
     }
 
     override suspend fun unloadModel(handle: ModelHandle): Unit = mutex.withLock {
+        val raw = requireNativeRaw(handle)
+        withContext(dispatcher) { nativeModelUnload(raw) }
+        // 현재 핸들과 일치할 때만 null 로. 이미 다른 핸들로 교체된 경우 그대로 둔다.
+        currentHandle.compareAndSet(handle as NativeModelHandle, null)
+    }
+
+    override suspend fun tokenize(handle: ModelHandle, text: String): IntArray = mutex.withLock {
+        val raw = requireNativeRaw(handle)
+        withContext(dispatcher) { nativeTokenize(raw, text) }
+    }
+
+    override suspend fun detokenize(handle: ModelHandle, tokens: IntArray): String = mutex.withLock {
+        val raw = requireNativeRaw(handle)
+        withContext(dispatcher) { nativeDetokenize(raw, tokens) }
+    }
+
+    override suspend fun generate(
+        handle: ModelHandle,
+        promptTokens: IntArray,
+        config: GenerationConfig,
+    ): IntArray = mutex.withLock {
+        val raw = requireNativeRaw(handle)
+        withContext(dispatcher) {
+            nativeGenerate(
+                handle = raw,
+                promptTokens = promptTokens,
+                maxNewTokens = config.maxNewTokens,
+                temperature = config.temperature,
+                topK = config.topK,
+                topP = config.topP,
+                seed = config.seed,
+            )
+        }
+    }
+
+    /**
+     * 핸들 런타임 타입을 [NativeModelHandle] 로 좁히고 raw 포인터를 꺼낸다. 외부에서 임의
+     * 구현한 [ModelHandle] 이 전달되면 [IllegalArgumentException]. [backendInit] 이 안 된 상태에서
+     * 호출되면 [IllegalStateException].
+     */
+    private fun requireNativeRaw(handle: ModelHandle): Long {
+        check(backendInitialized.get()) { "backendInit() must succeed before inference" }
         val native = handle as? NativeModelHandle
             ?: throw IllegalArgumentException(
                 "Unknown ModelHandle implementation: ${handle::class.java.name}"
             )
-        withContext(dispatcher) { nativeModelUnload(native.rawPtr) }
-        // 현재 핸들과 일치할 때만 null 로. 이미 다른 핸들로 교체된 경우 그대로 둔다.
-        currentHandle.compareAndSet(native, null)
+        return native.rawPtr
     }
 
     // JNI external — private 으로 캡슐화. 매핑은 C++ JNI_OnLoad 의 kLlamaMethods 테이블.
@@ -125,6 +165,17 @@ class LlamaCppEngine private constructor(
         kvQuantOrdinal: Int,
     ): Long
     private external fun nativeModelUnload(handle: Long)
+    private external fun nativeTokenize(handle: Long, text: String): IntArray
+    private external fun nativeDetokenize(handle: Long, tokens: IntArray): String
+    private external fun nativeGenerate(
+        handle: Long,
+        promptTokens: IntArray,
+        maxNewTokens: Int,
+        temperature: Float,
+        topK: Int,
+        topP: Float,
+        seed: Long,
+    ): IntArray
 
     companion object {
         /**

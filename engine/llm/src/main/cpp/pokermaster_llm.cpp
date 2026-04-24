@@ -5,7 +5,10 @@
 #include <jni.h>
 #include <android/log.h>
 #include <unistd.h>
+#include <cstdio>
+#include <cstdint>
 #include <string>
+#include <vector>
 #include <exception>
 #include <new>
 
@@ -39,6 +42,7 @@ static void ThrowJavaForCurrent(JNIEnv *env, const char *where) {
 struct LlamaSession {
     llama_model *model = nullptr;
     llama_context *ctx = nullptr;
+    const llama_vocab *vocab = nullptr;  // Phase3c-I: cached for tokenize/detokenize/generate
 };
 
 static jstring nativeVersion(JNIEnv *env, jobject /* thiz */) {
@@ -129,7 +133,16 @@ static jlong nativeModelLoad(JNIEnv *env, jobject /*thiz*/,
             return 0;
         }
 
-        auto *session = new LlamaSession { model, ctx };
+        const llama_vocab *vocab = llama_model_get_vocab(model);
+        if (vocab == nullptr) {
+            llama_free(ctx);
+            llama_model_free(model);
+            jclass rex = env->FindClass("java/lang/RuntimeException");
+            if (rex != nullptr) env->ThrowNew(rex, "llama_model_get_vocab returned null");
+            return 0;
+        }
+
+        auto *session = new LlamaSession { model, ctx, vocab };
         ALOGI("nativeModelLoad: session=%p n_ctx=%d n_threads=%d kvQ=%d mmap=%d mlock=%d",
               session, nCtx, nThreads, kvQuantOrdinal,
               static_cast<int>(useMmap), static_cast<int>(useMlock));
@@ -153,6 +166,190 @@ static void nativeModelUnload(JNIEnv *env, jobject /*thiz*/, jlong handle) {
     }
 }
 
+// Phase3c-I: text -> token ids. 2-pass size probe (llama_tokenize returns negative
+// count when buffer too small — that negative is the required size).
+static jintArray nativeTokenize(JNIEnv *env, jobject /*thiz*/, jlong handle, jstring text) {
+    try {
+        if (handle == 0) {
+            jclass c = env->FindClass("java/lang/IllegalStateException");
+            if (c != nullptr) env->ThrowNew(c, "nativeTokenize: handle == 0");
+            return nullptr;
+        }
+        auto *s = reinterpret_cast<LlamaSession *>(handle);
+        const char *utf = env->GetStringUTFChars(text, nullptr);
+        if (utf == nullptr) {
+            ThrowJavaForCurrent(env, "nativeTokenize GetStringUTFChars");
+            return nullptr;
+        }
+        std::string t(utf);
+        env->ReleaseStringUTFChars(text, utf);
+
+        // size probe: with n_tokens_max=0, llama_tokenize returns negative of the required size.
+        int32_t probe = llama_tokenize(s->vocab, t.c_str(), static_cast<int32_t>(t.size()),
+                                       nullptr, 0, /*add_special*/ true, /*parse_special*/ false);
+        int need = -probe;
+        if (need <= 0) {
+            // 0 tokens (empty input) — return empty jintArray.
+            return env->NewIntArray(0);
+        }
+        std::vector<llama_token> toks(static_cast<size_t>(need));
+        int32_t got = llama_tokenize(s->vocab, t.c_str(), static_cast<int32_t>(t.size()),
+                                     toks.data(), static_cast<int32_t>(toks.size()),
+                                     /*add_special*/ true, /*parse_special*/ false);
+        if (got < 0) {
+            got = -got;
+            if (got > static_cast<int32_t>(toks.size())) got = static_cast<int32_t>(toks.size());
+        }
+
+        jintArray out = env->NewIntArray(got);
+        if (out == nullptr) {
+            ThrowJavaForCurrent(env, "nativeTokenize NewIntArray");
+            return nullptr;
+        }
+        // llama_token == int32_t; safe to alias to jint.
+        env->SetIntArrayRegion(out, 0, got, reinterpret_cast<const jint *>(toks.data()));
+        return out;
+    } catch (...) {
+        ThrowJavaForCurrent(env, "nativeTokenize");
+        return nullptr;
+    }
+}
+
+// Phase3c-I: token ids -> text. Per-token llama_token_to_piece with 2-pass grow on
+// negative return (requested buffer length).
+static jstring nativeDetokenize(JNIEnv *env, jobject /*thiz*/, jlong handle, jintArray tokens) {
+    try {
+        if (handle == 0) {
+            jclass c = env->FindClass("java/lang/IllegalStateException");
+            if (c != nullptr) env->ThrowNew(c, "nativeDetokenize: handle == 0");
+            return nullptr;
+        }
+        auto *s = reinterpret_cast<LlamaSession *>(handle);
+
+        const jsize n = env->GetArrayLength(tokens);
+        std::vector<llama_token> ids(static_cast<size_t>(n));
+        if (n > 0) {
+            env->GetIntArrayRegion(tokens, 0, n, reinterpret_cast<jint *>(ids.data()));
+            if (env->ExceptionCheck()) return nullptr;
+        }
+
+        std::string out;
+        out.reserve(static_cast<size_t>(n) * 4);
+        std::vector<char> tmp(128);
+        for (jsize i = 0; i < n; ++i) {
+            int32_t w = llama_token_to_piece(s->vocab, ids[i], tmp.data(),
+                                             static_cast<int32_t>(tmp.size()),
+                                             /*lstrip*/ 0, /*special*/ false);
+            if (w < 0) {
+                tmp.resize(static_cast<size_t>(-w));
+                w = llama_token_to_piece(s->vocab, ids[i], tmp.data(),
+                                         static_cast<int32_t>(tmp.size()),
+                                         /*lstrip*/ 0, /*special*/ false);
+                if (w < 0) w = 0;  // give up on this token, skip
+            }
+            if (w > 0) out.append(tmp.data(), static_cast<size_t>(w));
+        }
+
+        jstring js = env->NewStringUTF(out.c_str());
+        if (env->ExceptionCheck()) return nullptr;
+        return js;
+    } catch (...) {
+        ThrowJavaForCurrent(env, "nativeDetokenize");
+        return nullptr;
+    }
+}
+
+// Phase3c-I: prompt decode -> sampler loop -> return generated token ids.
+// Sampler chain = top_k -> top_p -> temp -> dist. Sampler is freed on every exit path.
+static jintArray nativeGenerate(JNIEnv *env, jobject /*thiz*/, jlong handle,
+                                jintArray promptTokens, jint maxNewTokens,
+                                jfloat temperature, jint topK, jfloat topP,
+                                jlong seed) {
+    llama_sampler *smpl = nullptr;
+    try {
+        if (handle == 0) {
+            jclass c = env->FindClass("java/lang/IllegalStateException");
+            if (c != nullptr) env->ThrowNew(c, "nativeGenerate: handle == 0");
+            return nullptr;
+        }
+        auto *s = reinterpret_cast<LlamaSession *>(handle);
+
+        // copy prompt tokens into a mutable vector (llama_batch_get_one takes non-const ptr).
+        const jsize nPrompt = env->GetArrayLength(promptTokens);
+        if (nPrompt <= 0) {
+            jclass c = env->FindClass("java/lang/IllegalArgumentException");
+            if (c != nullptr) env->ThrowNew(c, "nativeGenerate: empty prompt");
+            return nullptr;
+        }
+        std::vector<llama_token> prompt(static_cast<size_t>(nPrompt));
+        env->GetIntArrayRegion(promptTokens, 0, nPrompt, reinterpret_cast<jint *>(prompt.data()));
+        if (env->ExceptionCheck()) return nullptr;
+
+        // Build sampler chain.
+        auto sparams = llama_sampler_chain_default_params();
+        smpl = llama_sampler_chain_init(sparams);
+        if (smpl == nullptr) {
+            jclass rex = env->FindClass("java/lang/RuntimeException");
+            if (rex != nullptr) env->ThrowNew(rex, "llama_sampler_chain_init returned null");
+            return nullptr;
+        }
+        llama_sampler_chain_add(smpl, llama_sampler_init_top_k(static_cast<int32_t>(topK)));
+        llama_sampler_chain_add(smpl, llama_sampler_init_top_p(topP, /*min_keep*/ 1));
+        llama_sampler_chain_add(smpl, llama_sampler_init_temp(temperature));
+        uint32_t sd = (seed >= 0) ? static_cast<uint32_t>(seed) : LLAMA_DEFAULT_SEED;
+        llama_sampler_chain_add(smpl, llama_sampler_init_dist(sd));
+
+        // Decode prompt in one shot.
+        {
+            llama_batch b = llama_batch_get_one(prompt.data(),
+                                                static_cast<int32_t>(prompt.size()));
+            int32_t rc = llama_decode(s->ctx, b);
+            if (rc != 0) {
+                llama_sampler_free(smpl);
+                smpl = nullptr;
+                jclass rex = env->FindClass("java/lang/RuntimeException");
+                if (rex != nullptr) {
+                    char msg[64];
+                    snprintf(msg, sizeof(msg), "llama_decode(prompt) failed rc=%d", rc);
+                    env->ThrowNew(rex, msg);
+                }
+                return nullptr;
+            }
+        }
+
+        // Generation loop.
+        std::vector<llama_token> out;
+        out.reserve(static_cast<size_t>(maxNewTokens > 0 ? maxNewTokens : 0));
+        for (int i = 0; i < maxNewTokens; ++i) {
+            llama_token id = llama_sampler_sample(smpl, s->ctx, -1);
+            llama_sampler_accept(smpl, id);
+            if (llama_vocab_is_eog(s->vocab, id)) break;
+            out.push_back(id);
+            llama_batch b = llama_batch_get_one(&out.back(), 1);
+            int32_t rc = llama_decode(s->ctx, b);
+            if (rc != 0) break;
+        }
+
+        llama_sampler_free(smpl);
+        smpl = nullptr;
+
+        jintArray arr = env->NewIntArray(static_cast<jsize>(out.size()));
+        if (arr == nullptr) {
+            ThrowJavaForCurrent(env, "nativeGenerate NewIntArray");
+            return nullptr;
+        }
+        if (!out.empty()) {
+            env->SetIntArrayRegion(arr, 0, static_cast<jsize>(out.size()),
+                                   reinterpret_cast<const jint *>(out.data()));
+        }
+        return arr;
+    } catch (...) {
+        if (smpl != nullptr) llama_sampler_free(smpl);
+        ThrowJavaForCurrent(env, "nativeGenerate");
+        return nullptr;
+    }
+}
+
 // JNI_OnLoad: Phase3a — auto-symbol 대신 RegisterNatives 로 명시 매핑.
 // 네이티브 함수 이름/심볼 가시성과 Kotlin 쪽 class/package rename 을 분리한다.
 // FindClass 경로만 여기서 유지하면 된다.
@@ -163,6 +360,9 @@ static const JNINativeMethod kLlamaMethods[] = {
     {"nativeBackendFree", "()V",                  reinterpret_cast<void *>(nativeBackendFree)},
     {"nativeModelLoad",   "(Ljava/lang/String;IIZZI)J", reinterpret_cast<void *>(nativeModelLoad)},
     {"nativeModelUnload", "(J)V",                       reinterpret_cast<void *>(nativeModelUnload)},
+    {"nativeTokenize",    "(JLjava/lang/String;)[I",    reinterpret_cast<void *>(nativeTokenize)},
+    {"nativeDetokenize",  "(J[I)Ljava/lang/String;",    reinterpret_cast<void *>(nativeDetokenize)},
+    {"nativeGenerate",    "(J[IIFIFJ)[I",               reinterpret_cast<void *>(nativeGenerate)},
 };
 
 extern "C" JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void * /*reserved*/) {
