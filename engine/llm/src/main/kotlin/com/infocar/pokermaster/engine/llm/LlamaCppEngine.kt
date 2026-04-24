@@ -9,11 +9,12 @@ import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * llama.cpp JNI 브리지 — v1.1 §5.6.
+ * llama.cpp JNI 브리지 — v1.1 §5.6. [LlmEngine] 의 Android 네이티브 구현.
  *
  * **싱글톤**: `llama_backend_init/free` 는 프로세스 수명당 1회 UB-safe 한 전역 상태를 건드린다.
  * 인스턴스가 둘 이상 공존하면 한쪽이 free 한 상태에서 다른 쪽이 init 을 가정해 UAF 가능.
  * 반드시 [tryCreate] 팩토리를 통해서만 획득한다 (double-checked locking).
+ * Hilt 에서는 [com.infocar.pokermaster.engine.llm.di.LlmModule] 이 `Result<LlmEngine>` 로 노출.
  *
  * **스레드 안전성**:
  *   - 모든 JNI 호출은 전용 단일 스레드 dispatcher (`llm-jni`, priority = NORM-1) 에서 수행.
@@ -24,47 +25,40 @@ import java.util.concurrent.atomic.AtomicBoolean
  * **예외 계약**:
  *   - [tryCreate] 는 `UnsatisfiedLinkError`/`LinkageError` 를 [Result.failure] 로 래핑한다.
  *     호출측 (예: ModelGate) 은 "미지원 단말" 안내 분기에 사용 가능.
- *   - JNI 측 예외는 [ThrowJavaForCurrent] 로 Java 예외로 변환 — RuntimeException/OOM 으로 수신.
+ *   - JNI 측 예외는 C++ `ThrowJavaForCurrent` 헬퍼로 Java 예외로 변환 — RuntimeException/OOM 수신.
  *
- * Phase3 에서는 `LlmEngine` 인터페이스 분리 + Hilt `@Singleton` 배선으로 전환한다.
+ * **JNI 바인딩**: C++ 쪽은 `JNI_OnLoad` + `RegisterNatives` 로 명시 매핑. Kotlin 외부 함수 이름
+ * (nativeVersion 등) 만 C++ `kLlamaMethods` 테이블과 맞추면 되고, 클래스/패키지 rename 은 C++의
+ * `FindClass` 경로 한 줄만 갱신한다.
  */
-class LlamaCppClient private constructor(
+class LlamaCppEngine private constructor(
     private val dispatcher: CoroutineDispatcher = defaultDispatcher,
-) {
+) : LlmEngine {
     private val mutex = Mutex()
     private val backendInitialized = AtomicBoolean(false)
 
-    /** 네이티브 빌드 식별 문자열 (llama_print_system_info 합성). 로드 smoke 용. */
-    suspend fun version(): String = mutex.withLock {
+    override suspend fun version(): String = mutex.withLock {
         withContext(dispatcher) { nativeVersion() }
     }
 
-    /** OS 페이지 크기 (sysconf _SC_PAGE_SIZE). 16KB 단말은 16384. */
-    suspend fun pageSize(): Long = mutex.withLock {
+    override suspend fun pageSize(): Long = mutex.withLock {
         withContext(dispatcher) { nativePageSize() }
     }
 
-    /**
-     * `llama_backend_init()` — **프로세스 수명당 1회** 실제 호출 보장.
-     * 재호출해도 안전 (CAS 로 무시). 반드시 모델 로드 전에 1회 성공해야 함.
-     */
-    suspend fun backendInit(): Unit = mutex.withLock {
+    override suspend fun backendInit(): Unit = mutex.withLock {
         if (backendInitialized.compareAndSet(false, true)) {
             withContext(dispatcher) { nativeBackendInit() }
         }
     }
 
-    /**
-     * `llama_backend_free()` — 앱 종료 정리용. 초기화 안 됐으면 no-op.
-     * 일반적으로 프로세스 종료가 해제를 대신하므로 호출하지 않아도 됨.
-     */
-    suspend fun backendFree(): Unit = mutex.withLock {
+    override suspend fun backendFree(): Unit = mutex.withLock {
         if (backendInitialized.compareAndSet(true, false)) {
             withContext(dispatcher) { nativeBackendFree() }
         }
     }
 
     // JNI external — private 으로 캡슐화해 외부에서 직접 호출로 불변식 깨는 걸 막는다.
+    // 매핑은 C++ JNI_OnLoad 의 kLlamaMethods 테이블이 담당 (이름만 일치해야 함).
     private external fun nativeVersion(): String
     private external fun nativePageSize(): Long
     private external fun nativeBackendInit()
@@ -72,20 +66,21 @@ class LlamaCppClient private constructor(
 
     companion object {
         /**
-         * `libpokermaster_llm.so` 로드 후 싱글톤을 반환. 실패는 [Result.failure].
+         * `libpokermaster_llm.so` 로드 후 싱글톤을 [LlmEngine] 추상으로 반환.
+         * 로드 실패는 [Result.failure]. 소비자는 `fold` 로 분기 (미지원 단말 안내 등).
          *
-         * `UnsatisfiedLinkError`/`LinkageError` 는 Error 계열이라 일반 try/catch 로는 잡히지 않는
-         * 상황이 있어 `runCatching` (Throwable 전체) 으로 래핑. 저 RAM / 미지원 ABI 단말에서
-         * static init 이 `ExceptionInInitializerError` 로 확산되는 것을 막는다.
+         * `UnsatisfiedLinkError`/`LinkageError` 는 Error 계열이라 일반 try/catch 로 잡히지 않는
+         * 상황이 있어 `runCatching` (Throwable 전체) 으로 래핑. static init 이
+         * `ExceptionInInitializerError` 로 확산되는 것을 막는다.
          */
-        fun tryCreate(): Result<LlamaCppClient> = runCatching {
+        fun tryCreate(): Result<LlmEngine> = runCatching {
             System.loadLibrary("pokermaster_llm")
             instance ?: synchronized(lock) {
-                instance ?: LlamaCppClient().also { instance = it }
+                instance ?: LlamaCppEngine().also { instance = it }
             }
         }
 
-        @Volatile private var instance: LlamaCppClient? = null
+        @Volatile private var instance: LlamaCppEngine? = null
         private val lock = Any()
 
         /**

@@ -8,9 +8,9 @@
     native <methods>;
 }
 
-# 2) LlamaCppClient 자체가 JNI 리플렉션 타겟 — 클래스 이름/native 시그니처/초기화 블록 유지.
-#    includedescriptorclasses: 파라미터/리턴 타입도 함께 보존해 JNI 시그니처 매칭 실패 방지.
--keep,includedescriptorclasses class com.infocar.pokermaster.engine.llm.LlamaCppClient {
+# 2) LlamaCppEngine 자체가 JNI RegisterNatives 타겟 (FindClass 경로 고정) — 클래스 이름/native 시그니처/
+#    초기화 블록 유지. includedescriptorclasses: 파라미터/리턴 타입도 함께 보존해 JNI 시그니처 매칭 실패 방지.
+-keep,includedescriptorclasses class com.infocar.pokermaster.engine.llm.LlamaCppEngine {
     native <methods>;
     static { *; }
 }

@@ -1,5 +1,7 @@
 plugins {
     alias(libs.plugins.pokermaster.android.library)
+    // Phase3a: Hilt @Module/@Singleton 으로 LlmEngine 을 Application scope 주입.
+    alias(libs.plugins.pokermaster.android.hilt)
 }
 
 android {
@@ -38,8 +40,11 @@ android {
 }
 
 dependencies {
+    // Phase3a: 공개 API (LlmEngine 타입이 함수 시그니처에 노출) 는 api() 로 propagate.
+    api(projects.engine.llmApi)
+
     implementation(projects.core.model)
-    // Phase2c §5.6: LlamaCppClient suspend API + single-thread dispatcher.
+    // Phase2c §5.6: LlamaCppEngine suspend API + single-thread dispatcher.
     implementation(libs.kotlinx.coroutines.android)
 
     testImplementation(libs.junit)

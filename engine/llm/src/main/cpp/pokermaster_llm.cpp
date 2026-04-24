@@ -33,9 +33,7 @@ static void ThrowJavaForCurrent(JNIEnv *env, const char *where) {
     }
 }
 
-extern "C" JNIEXPORT jstring JNICALL
-Java_com_infocar_pokermaster_engine_llm_LlamaCppClient_nativeVersion(
-    JNIEnv *env, jobject /* thiz */) {
+static jstring nativeVersion(JNIEnv *env, jobject /* thiz */) {
     try {
         // llama.cpp 런타임에서 직접 가져오는 빌드 문자열 — 태그 검증 겸 스모크.
         std::string v = std::string("pokermaster-llm/") + llama_print_system_info();
@@ -49,9 +47,7 @@ Java_com_infocar_pokermaster_engine_llm_LlamaCppClient_nativeVersion(
     }
 }
 
-extern "C" JNIEXPORT jlong JNICALL
-Java_com_infocar_pokermaster_engine_llm_LlamaCppClient_nativePageSize(
-    JNIEnv *env, jobject /* thiz */) {
+static jlong nativePageSize(JNIEnv *env, jobject /* thiz */) {
     try {
         // 16KB page size 대응 검증용 — sysconf(_SC_PAGE_SIZE) 는 OS 페이지 크기.
         // Android 15+ / 적응된 단말은 16384 를 반환해야 함.
@@ -64,9 +60,7 @@ Java_com_infocar_pokermaster_engine_llm_LlamaCppClient_nativePageSize(
     }
 }
 
-extern "C" JNIEXPORT void JNICALL
-Java_com_infocar_pokermaster_engine_llm_LlamaCppClient_nativeBackendInit(
-    JNIEnv *env, jobject /* thiz */) {
+static void nativeBackendInit(JNIEnv *env, jobject /* thiz */) {
     try {
         llama_backend_init();
         ALOGI("llama_backend_init()");
@@ -76,9 +70,7 @@ Java_com_infocar_pokermaster_engine_llm_LlamaCppClient_nativeBackendInit(
     }
 }
 
-extern "C" JNIEXPORT void JNICALL
-Java_com_infocar_pokermaster_engine_llm_LlamaCppClient_nativeBackendFree(
-    JNIEnv *env, jobject /* thiz */) {
+static void nativeBackendFree(JNIEnv *env, jobject /* thiz */) {
     try {
         llama_backend_free();
         ALOGI("llama_backend_free()");
@@ -86,4 +78,36 @@ Java_com_infocar_pokermaster_engine_llm_LlamaCppClient_nativeBackendFree(
         ThrowJavaForCurrent(env, "nativeBackendFree");
         return;
     }
+}
+
+// JNI_OnLoad: Phase3a — auto-symbol 대신 RegisterNatives 로 명시 매핑.
+// 네이티브 함수 이름/심볼 가시성과 Kotlin 쪽 class/package rename 을 분리한다.
+// FindClass 경로만 여기서 유지하면 된다.
+static const JNINativeMethod kLlamaMethods[] = {
+    {"nativeVersion",     "()Ljava/lang/String;", reinterpret_cast<void *>(nativeVersion)},
+    {"nativePageSize",    "()J",                  reinterpret_cast<void *>(nativePageSize)},
+    {"nativeBackendInit", "()V",                  reinterpret_cast<void *>(nativeBackendInit)},
+    {"nativeBackendFree", "()V",                  reinterpret_cast<void *>(nativeBackendFree)},
+};
+
+extern "C" JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void * /*reserved*/) {
+    JNIEnv *env = nullptr;
+    if (vm->GetEnv(reinterpret_cast<void **>(&env), JNI_VERSION_1_6) != JNI_OK) {
+        ALOGI("JNI_OnLoad: GetEnv(JNI_VERSION_1_6) failed");
+        return JNI_ERR;
+    }
+    jclass cls = env->FindClass("com/infocar/pokermaster/engine/llm/LlamaCppEngine");
+    if (cls == nullptr) {
+        ALOGI("JNI_OnLoad: FindClass LlamaCppEngine failed");
+        return JNI_ERR;
+    }
+    const int n = static_cast<int>(sizeof(kLlamaMethods) / sizeof(kLlamaMethods[0]));
+    if (env->RegisterNatives(cls, kLlamaMethods, n) < 0) {
+        ALOGI("JNI_OnLoad: RegisterNatives failed");
+        env->DeleteLocalRef(cls);
+        return JNI_ERR;
+    }
+    env->DeleteLocalRef(cls);
+    ALOGI("JNI_OnLoad: registered %d native methods", n);
+    return JNI_VERSION_1_6;
 }
