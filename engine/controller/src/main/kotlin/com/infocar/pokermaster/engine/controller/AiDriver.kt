@@ -77,7 +77,13 @@ class AiDriver(
     private fun buildContext(state: GameState, seat: Int): GameContext {
         val me = state.players.first { it.seat == seat }
         val opps = state.players.filter { it.seat != seat && !it.folded }
-        val effStack = minOf(me.chips, opps.maxOfOrNull { it.chips } ?: me.chips)
+        // M7-BugFix: effStack 계산은 "실제 베팅 가능한 상대의 스택" 기반. all-in 상대(chips=0)를
+        // 포함하면 effStack=0 으로 바뀌어 betSizingCandidates 가 비어 부적절한 fold 유도됨.
+        val liveOpps = opps.filter { !it.allIn }
+        val effStack = minOf(
+            me.chips,
+            liveOpps.maxOfOrNull { it.chips } ?: me.chips,
+        )
         val toCall = (state.betToCall - me.committedThisStreet).coerceAtLeast(0L)
         return GameContext(
             mode = state.mode,
@@ -94,7 +100,10 @@ class AiDriver(
             minRaise = state.minRaise,
             myStack = me.chips,
             effectiveStack = effStack,
-            numActiveOpponents = opps.count { !it.allIn },
+            // M7-BugFix: equity 계산엔 all-in 상대도 포함 (쇼다운까지 합류).
+            numActiveOpponents = opps.size,
+            // fold equity 계산엔 fold 가능한 상대만 (all-in 은 절대 fold 못 함).
+            numFoldableOpponents = liveOpps.size,
         )
     }
 

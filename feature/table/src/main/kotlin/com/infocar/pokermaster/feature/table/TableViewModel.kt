@@ -205,11 +205,29 @@ class TableViewModel private constructor(
                 if (s.pendingShowdown != null) return@launch
                 val p = s.players.firstOrNull { it.seat == seat } ?: return@launch
                 if (p.isHuman) return@launch
+                // M7-BugFix: toAct가 inactive seat(all-in/folded)을 가리키는 drift 상태라면
+                // NPC act 호출 시 engine 이 require(active) 트립. 탈출시켜 freeze 방지.
+                if (!p.active) {
+                    android.util.Log.w(
+                        "TableVM",
+                        "tick: toAct seat=$seat is inactive (folded=${p.folded}, allIn=${p.allIn}) — aborting tick",
+                    )
+                    return@launch
+                }
                 delay(npcDelayMs)
                 // Phase5-II-B: advisor 가 있으면 LLM → DecisionCore 폴백 경로, 없으면 pure
                 // DecisionCore. M5-B: npcActAndLog 로 action 과 streetBefore 도 함께 수거.
-                val result = withContext(Dispatchers.Default) {
-                    controller.npcActAndLog(llmAdvisor)
+                val result = try {
+                    withContext(Dispatchers.Default) {
+                        controller.npcActAndLog(llmAdvisor)
+                    }
+                } catch (ce: kotlinx.coroutines.CancellationException) {
+                    throw ce
+                } catch (t: Throwable) {
+                    // M7-BugFix: engine에서 assertion/크래시가 나도 전체 앱 죽이지 않음.
+                    // 다음 인간 액션이나 resume으로 복구될 수 있도록 tick만 중단.
+                    android.util.Log.e("TableVM", "NPC tick failed — aborting loop", t)
+                    return@launch
                 }
                 logAction(seat = result.actorSeat, action = result.action, streetOrdinal = result.streetBefore.ordinal)
                 _state.value = result.state

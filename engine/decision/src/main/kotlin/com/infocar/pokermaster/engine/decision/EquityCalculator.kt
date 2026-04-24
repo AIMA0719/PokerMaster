@@ -40,21 +40,24 @@ class EquityCalculator(private val seed: Long? = null) {
     ): Double {
         require(hole.size == 2) { "Hold'em hole must be exactly 2 cards" }
         require(board.size in 0..5) { "Board must be 0~5 cards" }
-        require(opponents in 1..9) { "Opponents must be 1~9" }
+        // M7-BugFix: 상대 0 = 본인 단독 생존. crash 대신 1.0.
+        if (opponents <= 0) return 1.0
 
         val known = (hole + board).toSet()
         require(known.size == hole.size + board.size) { "Duplicate cards in hole/board" }
 
         val deck = standardDeck() - known
         val needBoard = 5 - board.size
-        val needOppHole = opponents * 2
-        val needTotal = needBoard + needOppHole
-        require(deck.size >= needTotal) { "Not enough cards in deck for $opponents opponents" }
+        // M7-BugFix: 9명 초과/덱 부족 엣지에선 합리적 fallback 반환 (crash 대신 균등 추정).
+        val capped = opponents.coerceIn(1, 9)
+        val needTotal = needBoard + capped * 2
+        if (deck.size < needTotal) return 1.0 / (capped + 1.0)
 
         // 매 호출마다 신규 Random 인스턴스 — thread-safe (동일 EquityCalculator 인스턴스 동시 호출 안전)
         val rng = Random(seed ?: System.nanoTime())
         var sum = 0.0
         val deckArr = deck.toMutableList()
+        val effectiveOpponents = capped
 
         repeat(iterations) {
             // partial Fisher-Yates: 앞 needTotal 장만 셔플
@@ -66,7 +69,7 @@ class EquityCalculator(private val seed: Long? = null) {
             var bestOpp: HandValue = HandValue.MIN
             var ties = 0
 
-            for (op in 0 until opponents) {
+            for (op in 0 until effectiveOpponents) {
                 val oppHole = listOf(deckArr[pos], deckArr[pos + 1])
                 pos += 2
                 val v = HandEvaluatorHoldem.evaluate(oppHole, newBoard)
@@ -106,7 +109,9 @@ class EquityCalculator(private val seed: Long? = null) {
     ): Double {
         require(mySeven.size in 1..7) { "My cards must be 1~7" }
         val opponents = knownOppUpCards.size
-        require(opponents in 1..7) { "Opponents must be 1~7" }
+        // M7-BugFix: 상대 0 = 본인 단독 생존, 1.0. 7명 초과/덱 부족 시 균등 fallback.
+        if (opponents <= 0) return 1.0
+        if (opponents > 7) return 1.0 / (opponents + 1.0)
         knownOppUpCards.forEach {
             require(it.size in 0..4) { "Each opponent up cards must be 0~4" }
         }
@@ -120,7 +125,7 @@ class EquityCalculator(private val seed: Long? = null) {
         val needForMe = 7 - mySeven.size
         val needForOpps = knownOppUpCards.sumOf { 7 - it.size }
         val needTotal = needForMe + needForOpps
-        require(deck.size >= needTotal) { "Not enough cards in deck" }
+        if (deck.size < needTotal) return 1.0 / (opponents + 1.0)
 
         val rng = Random(seed ?: System.nanoTime())
         val deckArr = deck.toMutableList()

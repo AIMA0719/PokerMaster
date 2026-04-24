@@ -135,22 +135,37 @@ object HoldemReducer {
 
         // 라운드 종료 검사
         if (isBettingRoundComplete(s0)) {
-            val next = when (s0.street) {
-                Street.PREFLOP -> Street.FLOP
-                Street.FLOP -> Street.TURN
-                Street.TURN -> Street.RIVER
-                Street.RIVER -> Street.SHOWDOWN
-                else -> error("unexpected street ${s0.street}")
-            }
-            return if (next == Street.SHOWDOWN) {
-                runShowdown(s0.copy(street = Street.SHOWDOWN, toActSeat = null))
-            } else {
-                advanceToStreet(s0, next, rng)
-            }
+            return runoutOrShowdown(s0, rng)
         }
 
         val nextSeat = nextActiveSeatAfter(seat, s0.players)
         return s0.copy(toActSeat = nextSeat, stateVersion = s0.stateVersion + 1)
+    }
+
+    /**
+     * M7-BugFix: 전원 all-in 이어서 남은 스트릿도 자동 런아웃 해야 하는 경우 연쇄 전진.
+     *
+     *  - 기존: 한 스트릿만 `advanceToStreet` 후 종료. 새 스트릿에도 액터가 없으면
+     *    `toActSeat` 가 inactive seat 을 가리키게 되어 다음 `act()` 가
+     *    `require(player.active)` 트립 혹은 UI tick 루프 freeze.
+     *  - 수정: 다음 스트릿이 여전히 "모두 all-in" 이면 계속 전진, River 통과 시 쇼다운.
+     */
+    private fun runoutOrShowdown(s: GameState, rng: Rng): GameState {
+        var cur = s
+        while (true) {
+            val next = when (cur.street) {
+                Street.PREFLOP -> Street.FLOP
+                Street.FLOP -> Street.TURN
+                Street.TURN -> Street.RIVER
+                Street.RIVER ->
+                    return runShowdown(cur.copy(street = Street.SHOWDOWN, toActSeat = null))
+                else -> error("unexpected street ${cur.street}")
+            }
+            cur = advanceToStreet(cur, next, rng)
+            // 새 스트릿에서 누군가 액션 가능하면 그 seat 에 toAct 놔두고 종료.
+            if (!isBettingRoundComplete(cur)) return cur
+            // 전원 all-in 상태로 라운드가 즉시 완료된 상태 — 다음 스트릿으로 계속.
+        }
     }
 
     fun ackShowdown(state: GameState): GameState {

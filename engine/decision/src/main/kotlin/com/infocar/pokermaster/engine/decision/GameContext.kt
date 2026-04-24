@@ -25,7 +25,16 @@ data class GameContext(
     val minRaise: Long,                             // 최소 raise 절대값 (전체 commit)
     val myStack: Long,
     val effectiveStack: Long,                       // min(myStack, max opp stack)
+    /**
+     * 남아있는 상대 수 (equity 계산용).
+     * 폴드 안 한 모든 상대 포함 — all-in 상대도 쇼다운까지 합류하므로 포함.
+     */
     val numActiveOpponents: Int,
+    /**
+     * fold equity 계산용 상대 수 (M7-BugFix). all-in 상대는 절대 fold 못하므로 제외.
+     * 기본값은 [numActiveOpponents] — 호출자가 all-in 구분 못 하면 최악값으로 폴백.
+     */
+    val numFoldableOpponents: Int = numActiveOpponents,
 )
 
 /**

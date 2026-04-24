@@ -70,7 +70,7 @@ class DecisionCore(
                         equity = equity,
                         pot = ctx.pot,
                         amount = amt,
-                        opponents = ctx.numActiveOpponents,
+                        opponents = ctx.numFoldableOpponents,
                     ),
                     equity = equity,
                 )
@@ -86,7 +86,7 @@ class DecisionCore(
                         equity = equity,
                         pot = ctx.pot,
                         amount = raiseAmount,
-                        opponents = ctx.numActiveOpponents,
+                        opponents = ctx.numFoldableOpponents,
                     ),
                     equity = equity,
                 )
@@ -99,7 +99,7 @@ class DecisionCore(
                         equity = equity,
                         pot = ctx.pot,
                         amount = ctx.myStack,
-                        opponents = ctx.numActiveOpponents,
+                        opponents = ctx.numFoldableOpponents,
                     ),
                     equity = equity,
                 )

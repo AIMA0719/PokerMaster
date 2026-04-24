@@ -57,13 +57,15 @@ fun ActionBar(
     modifier: Modifier = Modifier,
 ) {
     // 슬라이더 현재값 (레이즈 총액, Long).
+    // M7-BugFix: min>max 인 transient state(매퍼 경계 프레임)에서 coerceIn 이 IAE throw 하지 않도록
+    // safeCoerceIn 으로 감쌈.
     var raiseTotal by remember(state.minRaiseTotal, state.maxRaiseTotal) {
-        mutableStateOf(state.minRaiseTotal.coerceIn(state.minRaiseTotal, state.maxRaiseTotal))
+        mutableStateOf(safeCoerceIn(state.minRaiseTotal, state.minRaiseTotal, state.maxRaiseTotal))
     }
 
     // state 바뀔 때 범위 재고정 (예: 상대 베팅 갱신).
     LaunchedEffect(state.minRaiseTotal, state.maxRaiseTotal) {
-        raiseTotal = raiseTotal.coerceIn(state.minRaiseTotal, state.maxRaiseTotal)
+        raiseTotal = safeCoerceIn(raiseTotal, state.minRaiseTotal, state.maxRaiseTotal)
     }
 
     Column(
@@ -230,8 +232,12 @@ internal fun computeRaiseTotalForRatio(state: ActionBarState, ratio: Double): Lo
     // betToCall 절대값 = currentCommitted + callAmount (callAmount 은 필요 시 0).
     val betToCallAbs = state.currentCommitted + state.callAmount
     val target = betToCallAbs + (state.potSize.toDouble() * ratio).roundToLong()
-    return target.coerceIn(state.minRaiseTotal, state.maxRaiseTotal)
+    return safeCoerceIn(target, state.minRaiseTotal, state.maxRaiseTotal)
 }
+
+/** M7-BugFix: min>max 인 비정상 상태에서 IAE throw 대신 max 로 폴백. */
+internal fun safeCoerceIn(value: Long, min: Long, max: Long): Long =
+    if (min > max) max else value.coerceIn(min, max)
 
 @Composable
 private fun QuickRatioRow(
