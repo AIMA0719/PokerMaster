@@ -1,7 +1,10 @@
 package com.infocar.pokermaster.engine.llm
 
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.asCoroutineDispatcher
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -124,16 +127,33 @@ class LlamaCppEngine private constructor(
         config: GenerationConfig,
     ): IntArray = mutex.withLock {
         val raw = requireNativeRaw(handle)
-        withContext(dispatcher) {
-            nativeGenerate(
-                handle = raw,
-                promptTokens = promptTokens,
-                maxNewTokens = config.maxNewTokens,
-                temperature = config.temperature,
-                topK = config.topK,
-                topP = config.topP,
-                seed = config.seed,
-            )
+        // Phase3c-II: cancel state 를 진입 시 리셋. 이전 generate 호출이 cancel 로 끝났다면
+        // flag 가 true 로 남아 있을 수 있다 (JNI 측에서도 진입 시 reset 하지만 방어선).
+        nativeResetCancel(raw)
+        // 현재 Job 이 cancel 되면 네이티브 abort callback 이 true 를 poll 하도록 flag flip.
+        // llama.cpp 는 layer/token 단위로 콜백을 체크하므로 cancellation 은 cooperative — 이 훅
+        // 없이는 coroutine cancel 이 네이티브 decode 루프까지 전파되지 않는다.
+        val job = currentCoroutineContext()[Job]
+        val cancelHook = job?.invokeOnCompletion { cause ->
+            if (cause is CancellationException) {
+                nativeCancel(raw)
+            }
+        }
+        try {
+            withContext(dispatcher) {
+                nativeGenerate(
+                    handle = raw,
+                    promptTokens = promptTokens,
+                    maxNewTokens = config.maxNewTokens,
+                    temperature = config.temperature,
+                    topK = config.topK,
+                    topP = config.topP,
+                    seed = config.seed,
+                )
+            }
+        } finally {
+            // 정상 완료 시 hook 해제 (leak 방지). dispose() 는 멱등.
+            cancelHook?.dispose()
         }
     }
 
@@ -165,6 +185,8 @@ class LlamaCppEngine private constructor(
         kvQuantOrdinal: Int,
     ): Long
     private external fun nativeModelUnload(handle: Long)
+    private external fun nativeCancel(handle: Long)
+    private external fun nativeResetCancel(handle: Long)
     private external fun nativeTokenize(handle: Long, text: String): IntArray
     private external fun nativeDetokenize(handle: Long, tokens: IntArray): String
     private external fun nativeGenerate(

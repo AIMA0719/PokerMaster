@@ -5,6 +5,7 @@
 #include <jni.h>
 #include <android/log.h>
 #include <unistd.h>
+#include <atomic>
 #include <cstdio>
 #include <cstdint>
 #include <string>
@@ -43,6 +44,7 @@ struct LlamaSession {
     llama_model *model = nullptr;
     llama_context *ctx = nullptr;
     const llama_vocab *vocab = nullptr;  // Phase3c-I: cached for tokenize/detokenize/generate
+    std::atomic<bool> cancelFlag{false};  // Phase3c-II: coroutine cancel → abort decode
 };
 
 static jstring nativeVersion(JNIEnv *env, jobject /* thiz */) {
@@ -143,6 +145,34 @@ static jlong nativeModelLoad(JNIEnv *env, jobject /*thiz*/,
         }
 
         auto *session = new LlamaSession { model, ctx, vocab };
+
+        // Phase3c-II: abort callback — llama.cpp 가 decode 루프 중 주기적으로 콜백을 돌려 true 면 중단.
+        // Kotlin 측 코루틴 cancel 이 nativeCancel 을 호출하면 cancelFlag 가 true 로 flip 된다.
+        llama_set_abort_callback(
+            session->ctx,
+            [](void *ud) -> bool {
+                return reinterpret_cast<LlamaSession *>(ud)->cancelFlag.load(std::memory_order_relaxed);
+            },
+            session
+        );
+
+        // Phase3c-II: warmup — dcache + kernel JIT 경로를 1 token decode 로 데워서 첫 generate() 의
+        // first-token 지연을 줄인다. 실패해도 세션 수명에는 영향 없음 (로그만 남기고 진행).
+        {
+            // BOS 또는 첫 vocab token 을 시드로. eos/eot 는 피한다.
+            llama_token seed_tok = 0;  // 대부분 BOS = 0 (Llama/GPT-family 관습)
+            llama_batch warm = llama_batch_get_one(&seed_tok, 1);
+            int dec = llama_decode(session->ctx, warm);
+            if (dec == 0) {
+                ALOGI("nativeModelLoad: warmup OK (1 token decode)");
+            } else {
+                ALOGI("nativeModelLoad: warmup decode rc=%d (continuing)", dec);
+            }
+            // warmup 토큰이 KV 에 남지 않도록 clear. b8870 은 memory API 를 제공한다:
+            // llama_memory_clear(llama_get_memory(ctx), true) — data=true 로 전체 리셋.
+            llama_memory_clear(llama_get_memory(session->ctx), true);
+        }
+
         ALOGI("nativeModelLoad: session=%p n_ctx=%d n_threads=%d kvQ=%d mmap=%d mlock=%d",
               session, nCtx, nThreads, kvQuantOrdinal,
               static_cast<int>(useMmap), static_cast<int>(useMlock));
@@ -164,6 +194,26 @@ static void nativeModelUnload(JNIEnv *env, jobject /*thiz*/, jlong handle) {
     } catch (...) {
         ThrowJavaForCurrent(env, "nativeModelUnload");
     }
+}
+
+// Phase3c-II: Kotlin 코루틴 cancel → cancelFlag=true. 현재 decode 루프는 abort_callback 을 통해
+// 중단되며, 이어지는 nativeGenerate 루프는 rc != 0 이 되어 자연스럽게 빠져나온다.
+static void nativeCancel(JNIEnv *env, jobject /*thiz*/, jlong handle) {
+    try {
+        if (handle == 0) return;
+        auto *s = reinterpret_cast<LlamaSession *>(handle);
+        s->cancelFlag.store(true, std::memory_order_relaxed);
+        ALOGI("nativeCancel: session=%p cancel=true", s);
+    } catch (...) { ThrowJavaForCurrent(env, "nativeCancel"); }
+}
+
+// Phase3c-II: 이전 cancel 상태가 새 generate 호출로 새지 않도록 명시 리셋.
+static void nativeResetCancel(JNIEnv *env, jobject /*thiz*/, jlong handle) {
+    try {
+        if (handle == 0) return;
+        auto *s = reinterpret_cast<LlamaSession *>(handle);
+        s->cancelFlag.store(false, std::memory_order_relaxed);
+    } catch (...) { ThrowJavaForCurrent(env, "nativeResetCancel"); }
 }
 
 // Phase3c-I: text -> token ids. 2-pass size probe (llama_tokenize returns negative
@@ -273,6 +323,8 @@ static jintArray nativeGenerate(JNIEnv *env, jobject /*thiz*/, jlong handle,
             return nullptr;
         }
         auto *s = reinterpret_cast<LlamaSession *>(handle);
+        // Phase3c-II: defensive — Kotlin 측도 리셋하지만, JNI 진입 시에도 한 번 더.
+        s->cancelFlag.store(false, std::memory_order_relaxed);
 
         // copy prompt tokens into a mutable vector (llama_batch_get_one takes non-const ptr).
         const jsize nPrompt = env->GetArrayLength(promptTokens);
@@ -360,6 +412,8 @@ static const JNINativeMethod kLlamaMethods[] = {
     {"nativeBackendFree", "()V",                  reinterpret_cast<void *>(nativeBackendFree)},
     {"nativeModelLoad",   "(Ljava/lang/String;IIZZI)J", reinterpret_cast<void *>(nativeModelLoad)},
     {"nativeModelUnload", "(J)V",                       reinterpret_cast<void *>(nativeModelUnload)},
+    {"nativeCancel",      "(J)V",                       reinterpret_cast<void *>(nativeCancel)},
+    {"nativeResetCancel", "(J)V",                       reinterpret_cast<void *>(nativeResetCancel)},
     {"nativeTokenize",    "(JLjava/lang/String;)[I",    reinterpret_cast<void *>(nativeTokenize)},
     {"nativeDetokenize",  "(J[I)Ljava/lang/String;",    reinterpret_cast<void *>(nativeDetokenize)},
     {"nativeGenerate",    "(J[IIFIFJ)[I",               reinterpret_cast<void *>(nativeGenerate)},
