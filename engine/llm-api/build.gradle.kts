@@ -16,6 +16,8 @@ testing {
                 implementation(libs.junit.jupiter.api)
                 implementation(libs.junit.jupiter.params)
                 implementation(libs.truth)
+                // Phase3c-III: LlmSessionTest 의 runTest + StateFlow 관찰용.
+                implementation(libs.kotlinx.coroutines.test)
             }
         }
     }
