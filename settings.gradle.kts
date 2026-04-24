@@ -31,7 +31,8 @@ include(":app")
 // Core (M0)
 include(":core:model")
 include(":core:ui")
-// include(":core:data")        // M1: Room 들어갈 때 활성화
+// M5-A: Room 기반 핸드 히스토리 저장소 활성화 (§1.2.G/§1.2.H).
+include(":core:data")
 
 // Engine
 include(":engine:rules")        // M1
@@ -44,6 +45,6 @@ include(":engine:llm-api")
 include(":feature:lobby")       // M0: 빈 LobbyScreen
 include(":feature:table")       // M3
 include(":feature:onboarding")  // M3 (v1.1 §1.2.B)
-// include(":feature:history")  // M5
-// include(":feature:training") // M5
+include(":feature:history")     // M5: 핸드 히스토리 리스트 + 리플레이 (§1.2.G/H/R)
+// include(":feature:training") // 스코프 제외 (M5 결정)
 // include(":feature:settings") // M3+
