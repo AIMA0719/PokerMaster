@@ -29,6 +29,9 @@ coroutines = "1.9.0"
 # Serialization
 kotlinxSerialization = "1.7.3"
 
+# Crypto — Ed25519 for model manifest signature (minSdk 29, native Ed25519 only on 34+)
+bouncycastle = "1.78.1"
+
 # Test
 junit = "4.13.2"
 junitJupiter = "5.11.4"
@@ -79,6 +82,9 @@ kotlinx-coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-cor
 
 # Serialization
 kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "kotlinxSerialization" }
+
+# Crypto
+bouncycastle-prov = { group = "org.bouncycastle", name = "bcprov-jdk18on", version.ref = "bouncycastle" }
 
 # Test (unit)
 junit = { group = "junit", name = "junit", version.ref = "junit" }
