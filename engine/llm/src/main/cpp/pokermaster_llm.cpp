@@ -310,12 +310,16 @@ static jstring nativeDetokenize(JNIEnv *env, jobject /*thiz*/, jlong handle, jin
 }
 
 // Phase3c-I: prompt decode -> sampler loop -> return generated token ids.
-// Sampler chain = top_k -> top_p -> temp -> dist. Sampler is freed on every exit path.
+// Sampler chain = [grammar?] -> top_k -> top_p -> temp -> dist. Sampler is freed on every exit path.
+// M4-Phase4 (grammar): optional GBNF — grammar must mask tokens BEFORE top_k/top_p,
+// otherwise compliant tokens may be pruned out of the distribution.
 static jintArray nativeGenerate(JNIEnv *env, jobject /*thiz*/, jlong handle,
                                 jintArray promptTokens, jint maxNewTokens,
                                 jfloat temperature, jint topK, jfloat topP,
-                                jlong seed) {
+                                jlong seed, jstring grammar) {
     llama_sampler *smpl = nullptr;
+    const char *grammarC = nullptr;
+    bool grammarHeld = false;
     try {
         if (handle == 0) {
             jclass c = env->FindClass("java/lang/IllegalStateException");
@@ -345,6 +349,28 @@ static jintArray nativeGenerate(JNIEnv *env, jobject /*thiz*/, jlong handle,
             if (rex != nullptr) env->ThrowNew(rex, "llama_sampler_chain_init returned null");
             return nullptr;
         }
+
+        // grammar 문자열이 있으면 chain 가장 앞에 grammar sampler. top_k/top_p 가 불가능한
+        // 토큰을 가지치기 하기 전에 먼저 logit mask 를 씌워야 compliant 토큰이 남는다.
+        if (grammar != nullptr) {
+            grammarC = env->GetStringUTFChars(grammar, nullptr);
+            grammarHeld = (grammarC != nullptr);
+        }
+        if (grammarHeld && grammarC[0] != '\0') {
+            llama_sampler *g = llama_sampler_init_grammar(s->vocab, grammarC, "root");
+            if (g != nullptr) {
+                llama_sampler_chain_add(smpl, g);
+            } else {
+                ALOGI("nativeGenerate: grammar init failed (invalid GBNF); continuing without grammar");
+            }
+        }
+        // 샘플러가 grammar 문자열을 내부 복사하므로 여기서 즉시 해제 가능.
+        if (grammarHeld) {
+            env->ReleaseStringUTFChars(grammar, grammarC);
+            grammarHeld = false;
+            grammarC = nullptr;
+        }
+
         llama_sampler_chain_add(smpl, llama_sampler_init_top_k(static_cast<int32_t>(topK)));
         llama_sampler_chain_add(smpl, llama_sampler_init_top_p(topP, /*min_keep*/ 1));
         llama_sampler_chain_add(smpl, llama_sampler_init_temp(temperature));
@@ -396,6 +422,11 @@ static jintArray nativeGenerate(JNIEnv *env, jobject /*thiz*/, jlong handle,
         }
         return arr;
     } catch (...) {
+        if (grammarHeld && grammarC != nullptr) {
+            env->ReleaseStringUTFChars(grammar, grammarC);
+            grammarHeld = false;
+            grammarC = nullptr;
+        }
         if (smpl != nullptr) llama_sampler_free(smpl);
         ThrowJavaForCurrent(env, "nativeGenerate");
         return nullptr;
@@ -416,7 +447,7 @@ static const JNINativeMethod kLlamaMethods[] = {
     {"nativeResetCancel", "(J)V",                       reinterpret_cast<void *>(nativeResetCancel)},
     {"nativeTokenize",    "(JLjava/lang/String;)[I",    reinterpret_cast<void *>(nativeTokenize)},
     {"nativeDetokenize",  "(J[I)Ljava/lang/String;",    reinterpret_cast<void *>(nativeDetokenize)},
-    {"nativeGenerate",    "(J[IIFIFJ)[I",               reinterpret_cast<void *>(nativeGenerate)},
+    {"nativeGenerate",    "(J[IIFIFJLjava/lang/String;)[I", reinterpret_cast<void *>(nativeGenerate)},
 };
 
 extern "C" JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void * /*reserved*/) {

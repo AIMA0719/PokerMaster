@@ -21,6 +21,12 @@ data class GenerationConfig(
     val topK: Int = DEFAULT_TOP_K,
     val topP: Float = DEFAULT_TOP_P,
     val seed: Long = RANDOM_SEED,
+    /**
+     * GBNF 문법 — Phase4. null 또는 빈 문자열이면 no grammar (자유 샘플링).
+     * 네이티브 측은 `llama_sampler_init_grammar(vocab, grammar, "root")` 로 chain 가장
+     * 앞에 삽입해 top_k/top_p 앞 단계에서 불가능한 토큰을 mask 한다.
+     */
+    val grammar: String? = null,
 ) {
     init {
         require(maxNewTokens in 1..MAX_NEW_TOKENS_CAP) {

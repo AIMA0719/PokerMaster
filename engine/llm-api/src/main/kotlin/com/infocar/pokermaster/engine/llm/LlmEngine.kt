@@ -63,4 +63,23 @@ interface LlmEngine {
         promptTokens: IntArray,
         config: GenerationConfig = GenerationConfig(),
     ): IntArray
+
+    /**
+     * Phase4: 문법 제약 (GBNF) 하에 자유 텍스트 프롬프트로부터 JSON 문자열 생성.
+     *
+     * 기본은 [JsonGrammar.STRICT] — 엄격 JSON 객체/배열만 허용. 호출자는 `schema`-specific
+     * GBNF 를 넘겨 더 좁힐 수 있다. 내부적으로 tokenize → [generate] (grammar 장착) → detokenize
+     * 를 순차 수행. 실패 경로 (grammar 자체가 invalid GBNF) 는 JNI 가 grammar 없이 진행하는
+     * soft-fail 로 동작하므로 반환 문자열이 JSON 이 아닐 수 있다 — 호출자는 파싱 검증을 해야 한다.
+     */
+    suspend fun generateJson(
+        handle: ModelHandle,
+        prompt: String,
+        grammar: String = JsonGrammar.STRICT,
+        config: GenerationConfig = GenerationConfig(),
+    ): String {
+        val promptTokens = tokenize(handle, prompt)
+        val out = generate(handle, promptTokens, config.copy(grammar = grammar))
+        return detokenize(handle, out)
+    }
 }

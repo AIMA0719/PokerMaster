@@ -149,6 +149,8 @@ class LlamaCppEngine private constructor(
                     topK = config.topK,
                     topP = config.topP,
                     seed = config.seed,
+                    // Phase4: GBNF 문법. null 또는 빈 문자열이면 JNI 측에서 grammar sampler 미삽입.
+                    grammar = config.grammar?.takeIf { it.isNotBlank() },
                 )
             }
         } finally {
@@ -197,6 +199,7 @@ class LlamaCppEngine private constructor(
         topK: Int,
         topP: Float,
         seed: Long,
+        grammar: String?,
     ): IntArray
 
     companion object {
