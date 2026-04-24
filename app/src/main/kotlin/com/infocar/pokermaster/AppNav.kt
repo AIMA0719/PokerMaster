@@ -24,6 +24,7 @@ import com.infocar.pokermaster.core.model.GameMode
 import com.infocar.pokermaster.di.LlmAdvisorEntryPoint
 import com.infocar.pokermaster.feature.history.HandDetailScreen
 import com.infocar.pokermaster.feature.history.HistoryListScreen
+import com.infocar.pokermaster.feature.history.stats.StatsScreen
 import com.infocar.pokermaster.feature.lobby.LobbyScreen
 import com.infocar.pokermaster.feature.onboarding.OnboardingPrefs
 import com.infocar.pokermaster.feature.onboarding.OnboardingScreen
@@ -42,6 +43,7 @@ private object Routes {
     const val HISTORY = "history"
     const val HISTORY_DETAIL = "history/{id}"
     const val SETTINGS = "settings"
+    const val STATS = "stats"
     fun table(mode: GameMode) = "table/${mode.name}"
     fun historyDetail(id: Long) = "history/$id"
 }
@@ -95,6 +97,8 @@ fun AppNav() {
                 onOpenHistory = { nav.navigate(Routes.HISTORY) },
                 // M6-A: 설정 진입점.
                 onOpenSettings = { nav.navigate(Routes.SETTINGS) },
+                // M6-B: 통계 진입점.
+                onOpenStats = { nav.navigate(Routes.STATS) },
             )
         }
         composable(Routes.SETTINGS) {
@@ -102,6 +106,9 @@ fun AppNav() {
                 onBack = { nav.popBackStack() },
                 versionName = BuildConfig.VERSION_NAME,
             )
+        }
+        composable(Routes.STATS) {
+            StatsScreen(onBack = { nav.popBackStack() })
         }
         composable(Routes.HISTORY) {
             HistoryListScreen(
