@@ -46,6 +46,9 @@ interface LlmAdvisorEntryPoint {
 
     fun historyRepo(): com.infocar.pokermaster.core.data.history.HandHistoryRepository
 
+    /** M6-C: 테이블 buy-in / settle 을 위한 wallet. */
+    fun walletRepo(): com.infocar.pokermaster.core.data.wallet.WalletRepository
+
     @AppScope
     fun appScope(): kotlinx.coroutines.CoroutineScope
 }

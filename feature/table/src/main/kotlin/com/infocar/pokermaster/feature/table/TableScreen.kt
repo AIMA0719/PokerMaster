@@ -47,6 +47,7 @@ import com.infocar.pokermaster.core.model.GameState
 import com.infocar.pokermaster.core.model.PlayerState
 import com.infocar.pokermaster.core.model.Street
 import com.infocar.pokermaster.core.data.history.HandHistoryRepository
+import com.infocar.pokermaster.core.data.wallet.WalletRepository
 import com.infocar.pokermaster.core.model.TableConfig
 import com.infocar.pokermaster.core.ui.theme.PokerMasterTheme
 import com.infocar.pokermaster.engine.controller.llm.LlmAdvisor
@@ -77,15 +78,18 @@ fun TableScreen(
     /** M5-B: 핸드 히스토리 Repository + Application scope. null 이면 저장 생략. */
     historyRepo: HandHistoryRepository? = null,
     historyScope: CoroutineScope? = null,
+    /** M6-C: chip wallet. null 이면 buy-in/settle 스킵. */
+    walletRepo: WalletRepository? = null,
     viewModel: TableViewModel = run {
         val ctx = LocalContext.current.applicationContext
-        remember(mode, llmAdvisor, historyRepo, historyScope) {
+        remember(mode, llmAdvisor, historyRepo, historyScope, walletRepo) {
             TableViewModel.createDefault(
                 context = ctx,
                 mode = mode,
                 llmAdvisor = llmAdvisor,
                 historyRepo = historyRepo,
                 historyScope = historyScope,
+                walletRepo = walletRepo,
             )
         }
     },

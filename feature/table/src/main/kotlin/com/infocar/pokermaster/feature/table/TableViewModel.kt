@@ -6,6 +6,8 @@ import androidx.lifecycle.viewModelScope
 import com.infocar.pokermaster.core.data.history.ActionLogEntry
 import com.infocar.pokermaster.core.data.history.HandHistoryRecord
 import com.infocar.pokermaster.core.data.history.HandHistoryRepository
+import com.infocar.pokermaster.core.data.wallet.BuyInResult
+import com.infocar.pokermaster.core.data.wallet.WalletRepository
 import com.infocar.pokermaster.core.model.Action
 import com.infocar.pokermaster.core.model.ActionType
 import com.infocar.pokermaster.core.model.GameMode
@@ -57,6 +59,8 @@ class TableViewModel private constructor(
      */
     private val historyRepo: HandHistoryRepository? = null,
     private val historyScope: CoroutineScope? = null,
+    /** M6-C: chip wallet. null 이면 buy-in/settle 스킵 (기존 호환). */
+    private val walletRepo: WalletRepository? = null,
 ) : ViewModel() {
 
     private var controller: GameController = GameController(config, initialPlayers)
@@ -75,6 +79,9 @@ class TableViewModel private constructor(
     private var currentHandActions: MutableList<ActionLogEntry> = mutableListOf()
     private val historyJson = Json { ignoreUnknownKeys = true; encodeDefaults = true }
 
+    // M6-C: 마지막 settle 중복 방지 플래그.
+    private var settled: Boolean = false
+
     init {
         val snap = resumeRepo?.load()
         if (snap != null && snap.state.mode == config.mode) {
@@ -84,6 +91,31 @@ class TableViewModel private constructor(
             // 새 핸드부터 바로 진행.
             startTicking()
         }
+        // M6-C: 테이블 세션 시작 시 wallet 에서 buy-in 차감 (LobbyVM 이 잔고 검증 후 진입).
+        walletRepo?.let { repo ->
+            viewModelScope.launch { repo.buyIn(WalletRepository.TABLE_STAKE) }
+        }
+    }
+
+    /**
+     * M6-C: 현재 인간 좌석의 최종 chips 를 wallet 에 적립. 중복 호출 방지 (settled flag).
+     * 사용자가 onExit 하거나 ViewModel 이 cleared 될 때 호출.
+     */
+    fun settleAndClose() {
+        if (settled) return
+        settled = true
+        val repo = walletRepo ?: return
+        val scope = historyScope ?: return
+        val finalChips = _state.value.players.firstOrNull { it.isHuman }?.chips ?: 0L
+        scope.launch(kotlinx.coroutines.NonCancellable) {
+            runCatching { repo.settle(finalChips) }
+        }
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        // onExit 에서 이미 settle 되지 않은 경우 방어선 — 앱 강제 종료 등.
+        settleAndClose()
     }
 
     // ---------------------------------------------------------------- Actions
@@ -275,12 +307,14 @@ class TableViewModel private constructor(
             mode: GameMode = GameMode.HOLDEM_NL,
             humanNickname: String = "나",
             npcPersonaId: String = "PRO",
-            startingChips: Long = 10_000L,
-            /** Phase5-II-B: LLM advisor (Hilt EntryPoint 로 가져온 것을 전달). null 이면 기존 경로. */
+            startingChips: Long = WalletRepository.TABLE_STAKE,
+            /** Phase5-II-B: LLM advisor. */
             llmAdvisor: LlmAdvisor? = null,
-            /** M5-B: 핸드 히스토리 저장소 + scope. null 이면 저장 생략. */
+            /** M5-B: 핸드 히스토리 저장소 + scope. */
             historyRepo: HandHistoryRepository? = null,
             historyScope: CoroutineScope? = null,
+            /** M6-C: 지갑. null 이면 buy-in/settle 스킵 (테스트/프리뷰 호환). */
+            walletRepo: WalletRepository? = null,
         ): TableViewModel {
             require(mode == GameMode.HOLDEM_NL) {
                 "M3 MVP supports HOLDEM_NL only (mode=$mode)"
@@ -304,6 +338,7 @@ class TableViewModel private constructor(
                 llmAdvisor = llmAdvisor,
                 historyRepo = historyRepo,
                 historyScope = historyScope,
+                walletRepo = walletRepo,
             )
         }
     }

@@ -145,6 +145,7 @@ fun AppNav() {
                 llmAdvisor = entry.llmAdvisor(),
                 historyRepo = entry.historyRepo(),
                 historyScope = entry.appScope(),
+                walletRepo = entry.walletRepo(),
             )
         }
     }

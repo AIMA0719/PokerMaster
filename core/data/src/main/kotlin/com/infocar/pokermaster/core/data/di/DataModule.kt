@@ -6,6 +6,9 @@ import com.infocar.pokermaster.core.data.PokerMasterDatabase
 import com.infocar.pokermaster.core.data.history.HandHistoryDao
 import com.infocar.pokermaster.core.data.history.HandHistoryRepository
 import com.infocar.pokermaster.core.data.history.RoomHandHistoryRepository
+import com.infocar.pokermaster.core.data.wallet.RoomWalletRepository
+import com.infocar.pokermaster.core.data.wallet.WalletDao
+import com.infocar.pokermaster.core.data.wallet.WalletRepository
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -41,4 +44,11 @@ object DataModule {
     @Singleton
     fun provideHandHistoryRepository(dao: HandHistoryDao): HandHistoryRepository =
         RoomHandHistoryRepository(dao)
+
+    @Provides
+    fun provideWalletDao(db: PokerMasterDatabase): WalletDao = db.walletDao()
+
+    @Provides
+    @Singleton
+    fun provideWalletRepository(dao: WalletDao): WalletRepository = RoomWalletRepository(dao)
 }
