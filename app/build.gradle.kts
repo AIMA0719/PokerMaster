@@ -37,6 +37,20 @@ android {
         buildConfig = true
     }
 
+    packaging {
+        resources {
+            // BouncyCastle multi-release jar 이 OSGI 메타를 포함 → 중복 경로 충돌 방지.
+            excludes += setOf(
+                "META-INF/versions/9/OSGI-INF/MANIFEST.MF",
+                "META-INF/DEPENDENCIES",
+                "META-INF/LICENSE",
+                "META-INF/LICENSE.txt",
+                "META-INF/NOTICE",
+                "META-INF/NOTICE.txt",
+            )
+        }
+    }
+
     buildTypes {
         debug {
             isDebuggable = true

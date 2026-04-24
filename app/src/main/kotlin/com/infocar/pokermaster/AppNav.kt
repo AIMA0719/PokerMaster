@@ -25,10 +25,12 @@ import com.infocar.pokermaster.feature.lobby.LobbyScreen
 import com.infocar.pokermaster.feature.onboarding.OnboardingPrefs
 import com.infocar.pokermaster.feature.onboarding.OnboardingScreen
 import com.infocar.pokermaster.feature.table.TableScreen
+import com.infocar.pokermaster.model.ModelGateScreen
 import kotlinx.coroutines.delay
 
 private object Routes {
     const val SPLASH = "splash"
+    const val MODEL_GATE = "modelGate"
     const val ONBOARDING = "onboarding"
     const val LOBBY = "lobby"
     const val TABLE = "table/{mode}"
@@ -46,10 +48,17 @@ fun AppNav() {
     NavHost(navController = nav, startDestination = Routes.SPLASH) {
         composable(Routes.SPLASH) {
             SplashScreen(onReady = {
+                nav.navigate(Routes.MODEL_GATE) {
+                    popUpTo(Routes.SPLASH) { inclusive = true }
+                }
+            })
+        }
+        composable(Routes.MODEL_GATE) {
+            ModelGateScreen(onReady = {
                 val completed = prefs.getBoolean(OnboardingPrefs.KEY_COMPLETED, false)
                 val dest = if (completed) Routes.LOBBY else Routes.ONBOARDING
                 nav.navigate(dest) {
-                    popUpTo(Routes.SPLASH) { inclusive = true }
+                    popUpTo(Routes.MODEL_GATE) { inclusive = true }
                 }
             })
         }
