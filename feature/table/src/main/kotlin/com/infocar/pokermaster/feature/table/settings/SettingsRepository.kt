@@ -7,6 +7,7 @@ import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import com.infocar.pokermaster.core.ui.theme.ThemeMode
 import com.infocar.pokermaster.feature.table.a11y.A11ySettings
 import com.infocar.pokermaster.feature.table.a11y.ColorblindMode
 import com.infocar.pokermaster.feature.table.guide.GuideSettings
@@ -60,6 +61,11 @@ class SettingsRepository @Inject constructor(
         )
     }
 
+    /** M7-A: 테마 모드. 미지정/unknown 문자열 → ThemeMode.DEFAULT (LIGHT). */
+    val themeMode: Flow<ThemeMode> = store.data.map { prefs ->
+        ThemeMode.fromStorage(prefs[Keys.ThemeMode])
+    }
+
     suspend fun setSfxPolicy(policy: SfxPolicy) {
         store.edit {
             it[Keys.SoundEnabled] = policy.soundEnabled
@@ -84,6 +90,10 @@ class SettingsRepository @Inject constructor(
         }
     }
 
+    suspend fun setThemeMode(mode: ThemeMode) {
+        store.edit { it[Keys.ThemeMode] = mode.name }
+    }
+
     private object Keys {
         val SoundEnabled = booleanPreferencesKey("sfx.sound_enabled")
         val HapticEnabled = booleanPreferencesKey("sfx.haptic_enabled")
@@ -94,5 +104,6 @@ class SettingsRepository @Inject constructor(
         val ReduceMotion = booleanPreferencesKey("a11y.reduce_motion")
         val GuideEnabled = booleanPreferencesKey("guide.mode_enabled")
         val SeenWelcome = booleanPreferencesKey("guide.seen_welcome")
+        val ThemeMode = stringPreferencesKey("ui.theme_mode")
     }
 }

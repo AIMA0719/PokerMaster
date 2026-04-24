@@ -3,6 +3,7 @@ package com.infocar.pokermaster.feature.table
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
@@ -10,6 +11,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
@@ -30,6 +32,8 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.infocar.pokermaster.core.model.Action
@@ -99,15 +103,15 @@ fun ActionBar(
                     .weight(1f)
                     .height(56.dp)
                     .semantics { contentDescription = foldA11y },
+                shape = ActionButtonShape,
+                elevation = ActionButtonElevation,
+                contentPadding = ActionButtonPadding,
                 colors = ButtonDefaults.buttonColors(
                     containerColor = if (foldSoft) PokerColors.Danger.copy(alpha = 0.7f) else PokerColors.Danger,
                     contentColor = Color.White,
                 ),
             ) {
-                Text(
-                    text = stringResource(id = R.string.action_fold),
-                    fontWeight = FontWeight.SemiBold,
-                )
+                ActionButtonLabel(text = stringResource(id = R.string.action_fold))
             }
 
             // 중앙 — 체크 / 콜.
@@ -135,12 +139,15 @@ fun ActionBar(
                     .height(56.dp)
                     .semantics { contentDescription = middleA11y },
                 enabled = middleEnabled,
+                shape = ActionButtonShape,
+                elevation = ActionButtonElevation,
+                contentPadding = ActionButtonPadding,
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                    contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
                 ),
             ) {
-                Text(text = middleLabel, fontWeight = FontWeight.SemiBold)
+                ActionButtonLabel(text = middleLabel)
             }
 
             // 레이즈.
@@ -170,15 +177,45 @@ fun ActionBar(
                     .height(56.dp)
                     .semantics { contentDescription = raiseA11y },
                 enabled = state.canRaise,
+                shape = ActionButtonShape,
+                elevation = ActionButtonElevation,
+                contentPadding = ActionButtonPadding,
                 colors = ButtonDefaults.buttonColors(
                     containerColor = PokerColors.Success,
                     contentColor = Color.White,
                 ),
             ) {
-                Text(text = raiseLabel, fontWeight = FontWeight.SemiBold)
+                ActionButtonLabel(text = raiseLabel)
             }
         }
     }
+}
+
+// -----------------------------------------------------------------------------
+// 버튼 공통 스타일 — 좁은 너비에서 한글이 글자 단위로 줄바꿈되지 않도록 고정.
+// (v1.1 §1.2.E, M7-B)
+// -----------------------------------------------------------------------------
+
+private val ActionButtonShape = RoundedCornerShape(14.dp)
+private val ActionButtonPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+
+private val ActionButtonElevation
+    @Composable get() = ButtonDefaults.buttonElevation(
+        defaultElevation = 2.dp,
+        pressedElevation = 4.dp,
+        disabledElevation = 0.dp,
+    )
+
+@Composable
+private fun ActionButtonLabel(text: String) {
+    Text(
+        text = text,
+        fontWeight = FontWeight.SemiBold,
+        maxLines = 1,
+        softWrap = false,
+        overflow = TextOverflow.Ellipsis,
+        textAlign = TextAlign.Center,
+    )
 }
 
 // -----------------------------------------------------------------------------
@@ -223,8 +260,17 @@ private fun RowScope.QuickRatioButton(
         modifier = Modifier
             .weight(1f)
             .heightIn(min = 36.dp),
+        shape = RoundedCornerShape(10.dp),
+        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp),
     ) {
-        Text(text = label, style = MaterialTheme.typography.labelSmall)
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall,
+            maxLines = 1,
+            softWrap = false,
+            overflow = TextOverflow.Ellipsis,
+            textAlign = TextAlign.Center,
+        )
     }
 }
 

@@ -3,6 +3,7 @@ package com.infocar.pokermaster.feature.table.settings
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.infocar.pokermaster.core.data.history.HandHistoryRepository
+import com.infocar.pokermaster.core.ui.theme.ThemeMode
 import com.infocar.pokermaster.feature.table.a11y.A11ySettings
 import com.infocar.pokermaster.feature.table.a11y.ColorblindMode
 import com.infocar.pokermaster.feature.table.guide.GuideSettings
@@ -33,7 +34,10 @@ class SettingsViewModel @Inject constructor(
             settingsRepo.sfxPolicy,
             settingsRepo.a11ySettings,
             settingsRepo.guideSettings,
-        ) { sfx, a11y, guide -> SettingsUiState(sfx, a11y, guide, loaded = true) }
+            settingsRepo.themeMode,
+        ) { sfx, a11y, guide, theme ->
+            SettingsUiState(sfx, a11y, guide, theme, loaded = true)
+        }
             .stateIn(
                 scope = viewModelScope,
                 started = SharingStarted.WhileSubscribed(5_000),
@@ -69,6 +73,10 @@ class SettingsViewModel @Inject constructor(
         settingsRepo.setGuideSettings(state.value.guide.copy(guideModeEnabled = enabled))
     }
 
+    fun setThemeMode(mode: ThemeMode) = viewModelScope.launch {
+        settingsRepo.setThemeMode(mode)
+    }
+
     fun clearAllHistory() = viewModelScope.launch {
         val before = historyRepo.count()
         historyRepo.clear()
@@ -84,5 +92,6 @@ data class SettingsUiState(
     val sfx: SfxPolicy = SfxPolicy(),
     val a11y: A11ySettings = A11ySettings(),
     val guide: GuideSettings = GuideSettings(),
+    val themeMode: ThemeMode = ThemeMode.DEFAULT,
     val loaded: Boolean = false,
 )

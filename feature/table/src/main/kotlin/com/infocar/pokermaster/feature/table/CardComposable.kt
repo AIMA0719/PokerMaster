@@ -27,6 +27,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate as drawRotate
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -38,6 +39,7 @@ import com.infocar.pokermaster.core.model.Card
 import com.infocar.pokermaster.core.model.Rank
 import com.infocar.pokermaster.core.model.Suit
 import com.infocar.pokermaster.core.model.symbol
+import com.infocar.pokermaster.core.ui.theme.PokerColors
 import com.infocar.pokermaster.core.ui.theme.PokerMasterTheme
 import com.infocar.pokermaster.feature.table.a11y.A11yStrings
 
@@ -63,8 +65,10 @@ fun PlayingCard(
     highlight: Boolean = false,
 ) {
     val gold = Color(0xFFD4AF37)
-    val backNavy = Color(0xFF123244)
-    val backTeal = Color(0xFF1B5566)
+    // M7-C: Light 모드에서는 포커 그린, Dark 모드에서는 네이비/틸.
+    val darkUi = MaterialTheme.colorScheme.background.luminance() < 0.5f
+    val backBase = if (darkUi) PokerColors.CardBackBaseDark else PokerColors.CardBackBaseLight
+    val backPattern = if (darkUi) PokerColors.CardBackPatternDark else PokerColors.CardBackPatternLight
     val cornerRadius = 8.dp
 
     val semanticsLabel: String = when {
@@ -85,8 +89,8 @@ fun PlayingCard(
             modifier = baseModifier,
             cornerRadius = cornerRadius,
             gold = gold,
-            navy = backNavy,
-            teal = backTeal,
+            navy = backBase,
+            teal = backPattern,
             highlight = highlight,
         )
         card == null -> CardPlaceholder(

@@ -41,6 +41,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.infocar.pokermaster.core.ui.theme.ThemeMode
 import com.infocar.pokermaster.feature.table.a11y.ColorblindMode
 
 /**
@@ -88,6 +89,26 @@ fun SettingsScreen(
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
+            SectionCard("테마") {
+                Text(
+                    "앱 색상 모드. 기본은 라이트입니다.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    ThemeMode.entries.forEach { mode ->
+                        FilterChip(
+                            selected = state.themeMode == mode,
+                            onClick = { viewModel.setThemeMode(mode) },
+                            label = { Text(mode.label()) },
+                        )
+                    }
+                }
+            }
+
             SectionCard("일반") {
                 ToggleRow(
                     label = "효과음",
@@ -221,6 +242,12 @@ private fun ToggleRow(label: String, checked: Boolean, onChange: (Boolean) -> Un
         Text(label, style = MaterialTheme.typography.bodyLarge)
         Switch(checked = checked, onCheckedChange = onChange)
     }
+}
+
+private fun ThemeMode.label(): String = when (this) {
+    ThemeMode.LIGHT -> "라이트"
+    ThemeMode.DARK -> "다크"
+    ThemeMode.SYSTEM -> "시스템"
 }
 
 @Composable

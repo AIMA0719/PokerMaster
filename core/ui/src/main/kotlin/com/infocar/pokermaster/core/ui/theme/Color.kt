@@ -18,4 +18,10 @@ object PokerColors {
 
     val OnDark = Color(0xFFE8EAEE)
     val OnLight = Color(0xFF1A1A1A)
+
+    // M7-C: 카드 뒷면 — 라이트/다크 둘 다에서 포커 느낌 유지.
+    val CardBackBaseLight = Color(0xFF0E5C3D)   // 포커 그린 (Primary)
+    val CardBackPatternLight = Color(0xFF1C8A5C) // 밝은 그린 — 대각 패턴
+    val CardBackBaseDark = Color(0xFF123244)     // 네이비
+    val CardBackPatternDark = Color(0xFF1B5566)  // 틸 — 대각 패턴
 }
