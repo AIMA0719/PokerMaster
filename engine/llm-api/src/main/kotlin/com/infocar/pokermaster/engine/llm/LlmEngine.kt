@@ -20,4 +20,22 @@ interface LlmEngine {
 
     /** 앱 종료 정리용. 초기화 안 됐으면 no-op. */
     suspend fun backendFree()
+
+    /**
+     * GGUF 파일을 읽어 model + context 를 생성하고 불투명 핸들을 반환.
+     *
+     * 계약:
+     *  - [backendInit] 성공 후에만 호출 가능. 아니면 `IllegalStateException`.
+     *  - 같은 엔진에 이미 로드된 핸들이 있으면 먼저 [unloadModel] 된 후 재로드.
+     *  - [path] 가 존재하지 않거나 읽을 수 없으면 `IllegalArgumentException`.
+     *  - [params] 가 범위를 벗어나면 `IllegalArgumentException` (ModelParams.init).
+     *  - 로드 자체 실패 (손상 GGUF, OOM, 호환 불가 quant 등) 는 `RuntimeException`.
+     */
+    suspend fun loadModel(path: String, params: ModelParams = ModelParams()): ModelHandle
+
+    /**
+     * [handle] 에 연결된 model + context 를 해제. 핸들이 null 이거나 이미 unload 된 경우 no-op.
+     * 알 수 없는 런타임 타입의 핸들 (외부에서 직접 구현한 경우) 은 `IllegalArgumentException`.
+     */
+    suspend fun unloadModel(handle: ModelHandle)
 }

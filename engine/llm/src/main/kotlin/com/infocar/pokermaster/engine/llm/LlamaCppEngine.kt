@@ -5,8 +5,10 @@ import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import java.io.File
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
 
 /**
  * llama.cpp JNI 브리지 — v1.1 §5.6. [LlmEngine] 의 Android 네이티브 구현.
@@ -14,28 +16,28 @@ import java.util.concurrent.atomic.AtomicBoolean
  * **싱글톤**: `llama_backend_init/free` 는 프로세스 수명당 1회 UB-safe 한 전역 상태를 건드린다.
  * 인스턴스가 둘 이상 공존하면 한쪽이 free 한 상태에서 다른 쪽이 init 을 가정해 UAF 가능.
  * 반드시 [tryCreate] 팩토리를 통해서만 획득한다 (double-checked locking).
- * Hilt 에서는 [com.infocar.pokermaster.engine.llm.di.LlmModule] 이 `Result<LlmEngine>` 로 노출.
+ * Hilt 에서는 [com.infocar.pokermaster.engine.llm.di.LlmModule] 이 [LlmEngineHandle] 로 노출.
  *
  * **스레드 안전성**:
  *   - 모든 JNI 호출은 전용 단일 스레드 dispatcher (`llm-jni`, priority = NORM-1) 에서 수행.
  *     Compose RenderThread/Choreographer frame 에 우선권을 양보한다.
  *   - 상태 전이는 [Mutex] 로 직렬화, idempotency 는 [AtomicBoolean]+CAS 로 원자성 보장.
- *   - `backendInit/Free` 는 idempotent 재호출 안전. 여러 코루틴이 동시 호출해도 JNI 는 1회만.
+ *   - `backendInit/Free` 는 idempotent 재호출 안전. `loadModel` 은 이전 핸들 자동 해제 후 재로드.
  *
  * **예외 계약**:
  *   - [tryCreate] 는 `UnsatisfiedLinkError`/`LinkageError` 를 [Result.failure] 로 래핑한다.
- *     호출측 (예: ModelGate) 은 "미지원 단말" 안내 분기에 사용 가능.
- *   - JNI 측 예외는 C++ `ThrowJavaForCurrent` 헬퍼로 Java 예외로 변환 — RuntimeException/OOM 수신.
+ *   - JNI 측 예외는 C++ `ThrowJavaForCurrent` 헬퍼로 Java 예외로 변환 — RuntimeException/OOM.
+ *   - [loadModel] 입력은 `ModelParams.init` + [loadModel] 본체에서 사전 검증 — GGML_ABORT 예방.
  *
- * **JNI 바인딩**: C++ 쪽은 `JNI_OnLoad` + `RegisterNatives` 로 명시 매핑. Kotlin 외부 함수 이름
- * (nativeVersion 등) 만 C++ `kLlamaMethods` 테이블과 맞추면 되고, 클래스/패키지 rename 은 C++의
- * `FindClass` 경로 한 줄만 갱신한다.
+ * **JNI 바인딩**: C++ 쪽은 `JNI_OnLoad` + `RegisterNatives` 로 명시 매핑. 클래스/패키지 rename
+ * 은 C++의 `FindClass` 경로 한 줄만 갱신하면 된다.
  */
 class LlamaCppEngine private constructor(
     private val dispatcher: CoroutineDispatcher = defaultDispatcher,
 ) : LlmEngine {
     private val mutex = Mutex()
     private val backendInitialized = AtomicBoolean(false)
+    private val currentHandle = AtomicReference<NativeModelHandle?>(null)
 
     override suspend fun version(): String = mutex.withLock {
         withContext(dispatcher) { nativeVersion() }
@@ -52,26 +54,82 @@ class LlamaCppEngine private constructor(
     }
 
     override suspend fun backendFree(): Unit = mutex.withLock {
+        // 열려 있는 모델이 있으면 먼저 해제 — backend 해제 전에 context/model 을 놔두면 UAF.
+        currentHandle.getAndSet(null)?.let { h ->
+            withContext(dispatcher) { nativeModelUnload(h.rawPtr) }
+        }
         if (backendInitialized.compareAndSet(true, false)) {
             withContext(dispatcher) { nativeBackendFree() }
         }
     }
 
-    // JNI external — private 으로 캡슐화해 외부에서 직접 호출로 불변식 깨는 걸 막는다.
-    // 매핑은 C++ JNI_OnLoad 의 kLlamaMethods 테이블이 담당 (이름만 일치해야 함).
+    override suspend fun loadModel(path: String, params: ModelParams): ModelHandle = mutex.withLock {
+        // 1) backend 초기화 선결. llama_model_load_from_file 은 backend 전역 상태를 참조한다.
+        check(backendInitialized.get()) {
+            "backendInit() must succeed before loadModel()"
+        }
+
+        // 2) 파일 사전 검증 — GGML_ABORT (process kill) 방어선.
+        //    ModelParams.init 은 숫자 범위만 본다. 여기서는 path 존재/접근권/최소 크기 체크.
+        val file = File(path)
+        require(file.isFile) { "GGUF not found or not a regular file: $path" }
+        require(file.canRead()) { "GGUF not readable: $path" }
+        require(file.length() >= MIN_GGUF_BYTES) {
+            "GGUF suspiciously small (${file.length()} B, min $MIN_GGUF_BYTES) — likely truncated: $path"
+        }
+
+        // 3) 기존 핸들이 있으면 해제 (idempotent re-load).
+        currentHandle.getAndSet(null)?.let { prev ->
+            withContext(dispatcher) { nativeModelUnload(prev.rawPtr) }
+        }
+
+        // 4) 네이티브 로드. 실패 시 JNI 가 RuntimeException 을 throw 하므로 여기까지 오면 성공.
+        val raw = withContext(dispatcher) {
+            nativeModelLoad(
+                path = path,
+                nCtx = params.nCtx,
+                nThreads = params.nThreads,
+                useMmap = params.useMmap,
+                useMlock = params.useMlock,
+                kvQuantOrdinal = params.kvQuant.ordinal,
+            )
+        }
+        check(raw != 0L) { "nativeModelLoad returned 0 without throwing (contract violation)" }
+
+        val handle = NativeModelHandle(raw)
+        currentHandle.set(handle)
+        handle
+    }
+
+    override suspend fun unloadModel(handle: ModelHandle): Unit = mutex.withLock {
+        val native = handle as? NativeModelHandle
+            ?: throw IllegalArgumentException(
+                "Unknown ModelHandle implementation: ${handle::class.java.name}"
+            )
+        withContext(dispatcher) { nativeModelUnload(native.rawPtr) }
+        // 현재 핸들과 일치할 때만 null 로. 이미 다른 핸들로 교체된 경우 그대로 둔다.
+        currentHandle.compareAndSet(native, null)
+    }
+
+    // JNI external — private 으로 캡슐화. 매핑은 C++ JNI_OnLoad 의 kLlamaMethods 테이블.
     private external fun nativeVersion(): String
     private external fun nativePageSize(): Long
     private external fun nativeBackendInit()
     private external fun nativeBackendFree()
+    private external fun nativeModelLoad(
+        path: String,
+        nCtx: Int,
+        nThreads: Int,
+        useMmap: Boolean,
+        useMlock: Boolean,
+        kvQuantOrdinal: Int,
+    ): Long
+    private external fun nativeModelUnload(handle: Long)
 
     companion object {
         /**
          * `libpokermaster_llm.so` 로드 후 싱글톤을 [LlmEngine] 추상으로 반환.
          * 로드 실패는 [Result.failure]. 소비자는 `fold` 로 분기 (미지원 단말 안내 등).
-         *
-         * `UnsatisfiedLinkError`/`LinkageError` 는 Error 계열이라 일반 try/catch 로 잡히지 않는
-         * 상황이 있어 `runCatching` (Throwable 전체) 으로 래핑. static init 이
-         * `ExceptionInInitializerError` 로 확산되는 것을 막는다.
          */
         fun tryCreate(): Result<LlmEngine> = runCatching {
             System.loadLibrary("pokermaster_llm")
@@ -94,5 +152,17 @@ class LlamaCppEngine private constructor(
                     isDaemon = true
                 }
             }.asCoroutineDispatcher()
+
+        /**
+         * 최소 GGUF 크기 가드 — 1B 모델 Q4_K_M 이 ~750MB. 10MB 미만이면 정상 GGUF 아님.
+         * tiny test 모델 (1MB 이하) 은 허용되지 않으며 Phase3b-II 테스트 인프라에서 분리한다.
+         */
+        private const val MIN_GGUF_BYTES: Long = 10_000_000L
     }
 }
+
+/**
+ * [ModelHandle] 의 JNI 구현. `rawPtr` 은 C++ `LlamaSession*` 를 `reinterpret_cast<jlong>` 한 값.
+ * `:engine:llm-api` 의 `ModelHandle` 은 빈 마커이고, 실제 포인터 소유권은 이 타입에만 존재한다.
+ */
+internal data class NativeModelHandle(val rawPtr: Long) : ModelHandle
