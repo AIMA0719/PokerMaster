@@ -11,6 +11,7 @@ import com.infocar.pokermaster.core.model.PlayerState
 import com.infocar.pokermaster.core.model.TableConfig
 import com.infocar.pokermaster.engine.controller.GameController
 import com.infocar.pokermaster.engine.controller.ResumeSeed
+import com.infocar.pokermaster.engine.controller.llm.LlmAdvisor
 import com.infocar.pokermaster.engine.rules.Rng
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -37,6 +38,11 @@ class TableViewModel private constructor(
     private val resumeRepo: ResumeRepository?,
     /** NPC 턴 간 UI 연출용 최소 대기(ms). 너무 빠르면 사용자가 NPC 액션을 놓침. */
     private val npcDelayMs: Long = 700L,
+    /**
+     * LLM advisor. null 이면 기존 DecisionCore/persona 결정만 사용 (모델 미로드/미지원 단말).
+     * Hilt 주입은 [createDefault] 팩토리에서 옵션으로 받아 내려준다.
+     */
+    private val llmAdvisor: LlmAdvisor? = null,
 ) : ViewModel() {
 
     private var controller: GameController = GameController(config, initialPlayers)
@@ -140,7 +146,13 @@ class TableViewModel private constructor(
                 val p = s.players.firstOrNull { it.seat == seat } ?: return@launch
                 if (p.isHuman) return@launch
                 delay(npcDelayMs)
-                val next = withContext(Dispatchers.Default) { controller.npcAct() }
+                // Phase5-II-B: advisor 가 있으면 LLM → DecisionCore 폴백 경로를 타고, 없으면
+                // 기존 경로 (pure DecisionCore). npcActWithLlm 은 suspend 라 Dispatchers.Default
+                // 에 명시적으로 올려 Monte Carlo blocking CPU 작업을 UI 스레드 밖으로 보낸다.
+                val next = withContext(Dispatchers.Default) {
+                    if (llmAdvisor != null) controller.npcActWithLlm(llmAdvisor)
+                    else controller.npcAct()
+                }
                 _state.value = next
                 persistSnapshot()
             }
@@ -177,6 +189,8 @@ class TableViewModel private constructor(
             humanNickname: String = "나",
             npcPersonaId: String = "PRO",
             startingChips: Long = 10_000L,
+            /** Phase5-II-B: LLM advisor (Hilt EntryPoint 로 가져온 것을 전달). null 이면 기존 경로. */
+            llmAdvisor: LlmAdvisor? = null,
         ): TableViewModel {
             require(mode == GameMode.HOLDEM_NL) {
                 "M3 MVP supports HOLDEM_NL only (mode=$mode)"
@@ -193,7 +207,12 @@ class TableViewModel private constructor(
                 ),
             )
             val repo = context?.let { ResumeRepository(it) }
-            return TableViewModel(config, players, repo)
+            return TableViewModel(
+                config = config,
+                initialPlayers = players,
+                resumeRepo = repo,
+                llmAdvisor = llmAdvisor,
+            )
         }
     }
 }

@@ -77,6 +77,8 @@ dependencies {
     // Phase3b-II: Application 이 LlmEngineHandle 을 @Inject + onTrimMemory 에서 backendFree.
     // `:engine:llm` 은 api(:engine:llm-api) 로 LlmEngine 심볼을 transitive 전파한다.
     implementation(projects.engine.llm)
+    // Phase5-II-B: LlmAdvisorModule 이 LlmAdvisor/LlmAdvisorImpl 을 참조.
+    implementation(projects.engine.controller)
     implementation(projects.feature.lobby)
     implementation(projects.feature.table)
     implementation(projects.feature.onboarding)

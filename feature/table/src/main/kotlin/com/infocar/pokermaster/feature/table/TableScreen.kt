@@ -48,6 +48,7 @@ import com.infocar.pokermaster.core.model.PlayerState
 import com.infocar.pokermaster.core.model.Street
 import com.infocar.pokermaster.core.model.TableConfig
 import com.infocar.pokermaster.core.ui.theme.PokerMasterTheme
+import com.infocar.pokermaster.engine.controller.llm.LlmAdvisor
 import com.infocar.pokermaster.feature.table.guide.GuideOverlay
 import com.infocar.pokermaster.feature.table.guide.GuideSettings
 import com.infocar.pokermaster.feature.table.guide.GuideStep
@@ -69,9 +70,13 @@ import kotlinx.coroutines.launch
 fun TableScreen(
     mode: GameMode,
     onExit: () -> Unit,
+    /** Phase5-II-B: LLM advisor. null 이면 DecisionCore-only 경로. AppNav 가 Hilt EntryPoint 로 주입. */
+    llmAdvisor: LlmAdvisor? = null,
     viewModel: TableViewModel = run {
         val ctx = LocalContext.current.applicationContext
-        remember(mode) { TableViewModel.createDefault(ctx, mode) }
+        remember(mode, llmAdvisor) {
+            TableViewModel.createDefault(ctx, mode, llmAdvisor = llmAdvisor)
+        }
     },
 ) {
     val state by viewModel.state.collectAsState()

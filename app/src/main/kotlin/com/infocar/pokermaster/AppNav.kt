@@ -21,11 +21,13 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.infocar.pokermaster.core.model.GameMode
+import com.infocar.pokermaster.di.LlmAdvisorEntryPoint
 import com.infocar.pokermaster.feature.lobby.LobbyScreen
 import com.infocar.pokermaster.feature.onboarding.OnboardingPrefs
 import com.infocar.pokermaster.feature.onboarding.OnboardingScreen
 import com.infocar.pokermaster.feature.table.TableScreen
 import com.infocar.pokermaster.model.ModelGateScreen
+import dagger.hilt.android.EntryPointAccessors
 import kotlinx.coroutines.delay
 
 private object Routes {
@@ -88,6 +90,15 @@ fun AppNav() {
         ) { entry ->
             val modeName = entry.arguments?.getString("mode") ?: GameMode.HOLDEM_NL.name
             val mode = runCatching { GameMode.valueOf(modeName) }.getOrDefault(GameMode.HOLDEM_NL)
+            // Phase5-II-B: Hilt EntryPoint 로 LlmAdvisor 획득 후 TableScreen 에 주입.
+            // 엔진 미지원 단말에서도 advisor 자체는 non-null 로 반환되며 내부 suggest() 가 null
+            // 폴백 → TableVM 은 기존 DecisionCore 경로로 동작.
+            val appCtx = LocalContext.current.applicationContext
+            val advisor = remember(appCtx) {
+                EntryPointAccessors
+                    .fromApplication(appCtx, LlmAdvisorEntryPoint::class.java)
+                    .llmAdvisor()
+            }
             TableScreen(
                 mode = mode,
                 onExit = {
@@ -95,6 +106,7 @@ fun AppNav() {
                         popUpTo(Routes.LOBBY) { inclusive = true }
                     }
                 },
+                llmAdvisor = advisor,
             )
         }
     }
