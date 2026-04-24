@@ -45,6 +45,16 @@ class LlmSession(
     fun currentModel(): ModelHandle? = currentModel
 
     /**
+     * state 가 [LlmState.Ready] 일 때만 underlying [LlmEngine] 을 노출.
+     * 그 외 상태 (Uninitialized / Released / LoadFailed) 에서는 null — 호출자는 폴백해야 한다.
+     * Advisor 가 generate/tokenize 를 직접 호출해야 하는 경우 사용.
+     */
+    fun engineIfReady(): LlmEngine? {
+        if (_state.value !is LlmState.Ready) return null
+        return handle.engineOrNull()
+    }
+
+    /**
      * 네이티브 backend 초기화. 이미 Ready 이면 no-op. LoadFailed 상태 (엔진 미지원 단말) 에서는
      * 네이티브 호출 자체가 불가능하므로 no-op.
      */

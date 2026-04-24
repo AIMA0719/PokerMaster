@@ -1,0 +1,55 @@
+package com.infocar.pokermaster.engine.controller.llm
+
+import com.infocar.pokermaster.core.model.ActionType
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
+
+/**
+ * LLM 이 생성한 포커 결정 — Phase5-I.
+ *
+ * [action] 은 [ActionType] 열거 이름 (대문자). [amount] 는 누적 commit 절대값 (GameContext 계약).
+ * [confidence] 는 0..1, [reasoning] 은 디버그/튜닝 용 optional.
+ *
+ * JSON 스키마는 [com.infocar.pokermaster.engine.controller.llm.DecisionGrammar.DECISION] 으로
+ * 강제. 스키마 어긋난 응답은 [parse] 가 null 반환.
+ */
+@Serializable
+data class LlmDecision(
+    @SerialName("action") val action: String,
+    @SerialName("amount") val amount: Long = 0L,
+    @SerialName("confidence") val confidence: Double = 0.5,
+    @SerialName("reasoning") val reasoning: String? = null,
+) {
+    /** LLM 출력이 유효한 ActionType 으로 매핑되는지. */
+    fun actionTypeOrNull(): ActionType? = runCatching { ActionType.valueOf(action) }.getOrNull()
+
+    /** [confidence] 가 실수 범위를 벗어났는지 체크. */
+    val confidenceInRange: Boolean get() = confidence in 0.0..1.0
+
+    companion object {
+        private val json = Json {
+            ignoreUnknownKeys = true  // LLM 이 추가 필드 만들어도 무시
+            coerceInputValues = true
+            isLenient = true
+        }
+
+        /**
+         * LLM 이 [com.infocar.pokermaster.engine.llm.LlmEngine.generateJson] 으로 반환한 문자열을
+         * [LlmDecision] 으로 파싱. 실패/schema 어긋남/unknown action 은 모두 null.
+         *
+         * 호출자는 null 이면 폴백 (PersonaBias heuristic) 으로 내려가야 한다 (Phase5-II).
+         */
+        fun parse(raw: String): LlmDecision? {
+            val trimmed = raw.trim().takeIf { it.isNotEmpty() } ?: return null
+            val decision = runCatching { json.decodeFromString<LlmDecision>(trimmed) }.getOrNull()
+                ?: return null
+            // 최소 검증: action 이 알려진 enum 이어야 함, amount non-negative,
+            // confidence 범위, reasoning 은 선택.
+            if (decision.actionTypeOrNull() == null) return null
+            if (decision.amount < 0L) return null
+            if (!decision.confidenceInRange) return null
+            return decision
+        }
+    }
+}

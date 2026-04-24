@@ -1,11 +1,16 @@
 plugins {
     alias(libs.plugins.pokermaster.jvm.library)
+    // Phase5-I: LlmDecision JSON 파싱 + PromptFormatter 직렬화용.
+    alias(libs.plugins.kotlin.serialization)
 }
 
 dependencies {
     implementation(projects.core.model)
     implementation(projects.engine.rules)
     implementation(projects.engine.decision)
+    // Phase5-I: LlmEngine/GenerationConfig/JsonGrammar 타입 노출 (suspend advisor).
+    api(projects.engine.llmApi)
+    implementation(libs.kotlinx.serialization.json)
 }
 
 // :engine:controller 는 pure Kotlin (coroutines 의존 없음).
