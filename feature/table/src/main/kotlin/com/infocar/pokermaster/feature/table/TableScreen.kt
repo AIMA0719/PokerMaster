@@ -46,9 +46,11 @@ import com.infocar.pokermaster.core.model.GameMode
 import com.infocar.pokermaster.core.model.GameState
 import com.infocar.pokermaster.core.model.PlayerState
 import com.infocar.pokermaster.core.model.Street
+import com.infocar.pokermaster.core.data.history.HandHistoryRepository
 import com.infocar.pokermaster.core.model.TableConfig
 import com.infocar.pokermaster.core.ui.theme.PokerMasterTheme
 import com.infocar.pokermaster.engine.controller.llm.LlmAdvisor
+import kotlinx.coroutines.CoroutineScope
 import com.infocar.pokermaster.feature.table.guide.GuideOverlay
 import com.infocar.pokermaster.feature.table.guide.GuideSettings
 import com.infocar.pokermaster.feature.table.guide.GuideStep
@@ -70,12 +72,21 @@ import kotlinx.coroutines.launch
 fun TableScreen(
     mode: GameMode,
     onExit: () -> Unit,
-    /** Phase5-II-B: LLM advisor. null 이면 DecisionCore-only 경로. AppNav 가 Hilt EntryPoint 로 주입. */
+    /** Phase5-II-B: LLM advisor. null 이면 DecisionCore-only 경로. */
     llmAdvisor: LlmAdvisor? = null,
+    /** M5-B: 핸드 히스토리 Repository + Application scope. null 이면 저장 생략. */
+    historyRepo: HandHistoryRepository? = null,
+    historyScope: CoroutineScope? = null,
     viewModel: TableViewModel = run {
         val ctx = LocalContext.current.applicationContext
-        remember(mode, llmAdvisor) {
-            TableViewModel.createDefault(ctx, mode, llmAdvisor = llmAdvisor)
+        remember(mode, llmAdvisor, historyRepo, historyScope) {
+            TableViewModel.createDefault(
+                context = ctx,
+                mode = mode,
+                llmAdvisor = llmAdvisor,
+                historyRepo = historyRepo,
+                historyScope = historyScope,
+            )
         }
     },
 ) {

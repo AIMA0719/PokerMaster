@@ -3,16 +3,24 @@ package com.infocar.pokermaster.feature.table
 import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.infocar.pokermaster.core.data.history.ActionLogEntry
+import com.infocar.pokermaster.core.data.history.HandHistoryRecord
+import com.infocar.pokermaster.core.data.history.HandHistoryRepository
 import com.infocar.pokermaster.core.model.Action
 import com.infocar.pokermaster.core.model.ActionType
 import com.infocar.pokermaster.core.model.GameMode
 import com.infocar.pokermaster.core.model.GameState
 import com.infocar.pokermaster.core.model.PlayerState
+import com.infocar.pokermaster.core.model.ShowdownSummary
 import com.infocar.pokermaster.core.model.TableConfig
 import com.infocar.pokermaster.engine.controller.GameController
 import com.infocar.pokermaster.engine.controller.ResumeSeed
 import com.infocar.pokermaster.engine.controller.llm.LlmAdvisor
 import com.infocar.pokermaster.engine.rules.Rng
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.NonCancellable
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -43,6 +51,12 @@ class TableViewModel private constructor(
      * Hilt 주입은 [createDefault] 팩토리에서 옵션으로 받아 내려준다.
      */
     private val llmAdvisor: LlmAdvisor? = null,
+    /**
+     * M5-B: 핸드 히스토리 저장소. null 이면 기록 생략 (테스트/프리뷰). Application scope 에서
+     * 저장해야 핸드 종료 직후 VM cleared 되어도 기록이 살아남음.
+     */
+    private val historyRepo: HandHistoryRepository? = null,
+    private val historyScope: CoroutineScope? = null,
 ) : ViewModel() {
 
     private var controller: GameController = GameController(config, initialPlayers)
@@ -54,6 +68,12 @@ class TableViewModel private constructor(
     val resumePrompt: StateFlow<ResumePrompt?> = _resumePrompt.asStateFlow()
 
     private var tickJob: Job? = null
+
+    // M5-B: 핸드 히스토리 수집 버퍼. handIndex 가 바뀔 때마다 리셋.
+    private var currentHandIndex: Long = controller.state.handIndex
+    private var currentHandInitialState: GameState = controller.state
+    private var currentHandActions: MutableList<ActionLogEntry> = mutableListOf()
+    private val historyJson = Json { ignoreUnknownKeys = true; encodeDefaults = true }
 
     init {
         val snap = resumeRepo?.load()
@@ -73,8 +93,12 @@ class TableViewModel private constructor(
         val seat = s.toActSeat ?: return
         val p = s.players.firstOrNull { it.seat == seat } ?: return
         if (!p.isHuman) return
+        val streetBefore = s.street
         val next = controller.humanAct(action)
+        // M5-B: human 액션 로그 + 핸드 종료 감지.
+        logAction(seat = seat, action = action, streetOrdinal = streetBefore.ordinal)
         _state.value = next
+        maybeRecordFinishedHand(next)
         persistSnapshot()
         startTicking()
     }
@@ -87,6 +111,8 @@ class TableViewModel private constructor(
         val active = controller.state.players.count { it.chips > 0 }
         if (active >= 2) {
             _state.value = controller.nextHand()
+            // M5-B: 다음 핸드 초기 상태/seed 새로 캡처 + 액션 로그 초기화.
+            resetHistoryBufferFor(controller.state)
             persistSnapshot()
             startTicking()
         } else {
@@ -123,6 +149,8 @@ class TableViewModel private constructor(
             resumeFrom = ResumeSeed(state = snap.state, rng = rng),
         )
         _state.value = controller.state
+        // M5-B: 재개된 핸드는 현재 상태를 "시작" 으로 간주 (이전 액션 로그는 소실).
+        resetHistoryBufferFor(controller.state)
         _resumePrompt.value = null
         startTicking()
     }
@@ -146,18 +174,77 @@ class TableViewModel private constructor(
                 val p = s.players.firstOrNull { it.seat == seat } ?: return@launch
                 if (p.isHuman) return@launch
                 delay(npcDelayMs)
-                // Phase5-II-B: advisor 가 있으면 LLM → DecisionCore 폴백 경로를 타고, 없으면
-                // 기존 경로 (pure DecisionCore). npcActWithLlm 은 suspend 라 Dispatchers.Default
-                // 에 명시적으로 올려 Monte Carlo blocking CPU 작업을 UI 스레드 밖으로 보낸다.
-                val next = withContext(Dispatchers.Default) {
-                    if (llmAdvisor != null) controller.npcActWithLlm(llmAdvisor)
-                    else controller.npcAct()
+                // Phase5-II-B: advisor 가 있으면 LLM → DecisionCore 폴백 경로, 없으면 pure
+                // DecisionCore. M5-B: npcActAndLog 로 action 과 streetBefore 도 함께 수거.
+                val result = withContext(Dispatchers.Default) {
+                    controller.npcActAndLog(llmAdvisor)
                 }
-                _state.value = next
+                logAction(seat = result.actorSeat, action = result.action, streetOrdinal = result.streetBefore.ordinal)
+                _state.value = result.state
+                maybeRecordFinishedHand(result.state)
                 persistSnapshot()
             }
         }
     }
+
+    // ---------------------------------------------------------------- History
+
+    /** 현재 버퍼에 action 추가. handIndex 바뀐 경우 먼저 reset. */
+    private fun logAction(seat: Int, action: Action, streetOrdinal: Int) {
+        // handIndex 가 바뀌었다면 onNextHand() 가 이미 resetHistoryBufferFor 를 호출했을 텐데
+        // 안전망으로 한 번 더 체크.
+        val currentIndex = controller.state.handIndex
+        if (currentIndex != currentHandIndex) resetHistoryBufferFor(controller.state)
+        currentHandActions.add(ActionLogEntry(seat = seat, action = action, streetIndex = streetOrdinal))
+    }
+
+    private fun resetHistoryBufferFor(state: GameState) {
+        currentHandIndex = state.handIndex
+        currentHandInitialState = state
+        currentHandActions = mutableListOf()
+    }
+
+    /** 쇼다운 pending 이 막 생겼으면 히스토리 저장. 이미 저장했으면 중복 방지. */
+    private var lastRecordedHandIndex: Long = -1L
+    private fun maybeRecordFinishedHand(state: GameState) {
+        if (state.pendingShowdown == null) return
+        if (state.handIndex == lastRecordedHandIndex) return
+        val repo = historyRepo ?: return
+        val scope = historyScope ?: return
+        lastRecordedHandIndex = state.handIndex
+
+        val rng = controller.rng
+        val record = HandHistoryRecord(
+            id = 0,
+            mode = state.mode.name,
+            handIndex = state.handIndex,
+            startedAt = nowMs() - estimateHandDurationMs(currentHandActions.size),
+            endedAt = nowMs(),
+            seedCommitHex = currentHandInitialState.rngCommitHex,
+            serverSeedHex = rng.serverSeed.toHexLower(),
+            clientSeedHex = rng.clientSeed.toHexLower(),
+            nonce = rng.nonce,
+            initialState = currentHandInitialState,
+            actions = currentHandActions.toList(),
+            resultJson = runCatching {
+                historyJson.encodeToString(ShowdownSummary.serializer(), state.pendingShowdown!!)
+            }.getOrElse { "{}" },
+            winnerSeat = state.pendingShowdown?.payouts
+                ?.maxByOrNull { it.value }?.key,
+            potSize = state.players.sumOf { it.committedThisHand },
+        )
+        scope.launch(NonCancellable) {
+            runCatching { repo.record(record) }
+        }
+    }
+
+    private fun nowMs(): Long = System.currentTimeMillis()
+
+    /** action 수당 대략 1초 가정 (UI delay 포함) — 정확한 시작시간은 aux 지표. */
+    private fun estimateHandDurationMs(actionCount: Int): Long =
+        (actionCount * 1000L).coerceAtLeast(1000L)
+
+    // ---------------------------------------------------------------- Snapshot
 
     private fun persistSnapshot() {
         val repo = resumeRepo ?: return
@@ -191,6 +278,9 @@ class TableViewModel private constructor(
             startingChips: Long = 10_000L,
             /** Phase5-II-B: LLM advisor (Hilt EntryPoint 로 가져온 것을 전달). null 이면 기존 경로. */
             llmAdvisor: LlmAdvisor? = null,
+            /** M5-B: 핸드 히스토리 저장소 + scope. null 이면 저장 생략. */
+            historyRepo: HandHistoryRepository? = null,
+            historyScope: CoroutineScope? = null,
         ): TableViewModel {
             require(mode == GameMode.HOLDEM_NL) {
                 "M3 MVP supports HOLDEM_NL only (mode=$mode)"
@@ -212,6 +302,8 @@ class TableViewModel private constructor(
                 initialPlayers = players,
                 resumeRepo = repo,
                 llmAdvisor = llmAdvisor,
+                historyRepo = historyRepo,
+                historyScope = historyScope,
             )
         }
     }

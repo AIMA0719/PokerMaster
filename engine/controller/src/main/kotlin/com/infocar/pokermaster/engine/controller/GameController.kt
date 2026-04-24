@@ -3,6 +3,7 @@ package com.infocar.pokermaster.engine.controller
 import com.infocar.pokermaster.core.model.Action
 import com.infocar.pokermaster.core.model.GameState
 import com.infocar.pokermaster.core.model.PlayerState
+import com.infocar.pokermaster.core.model.Street
 import com.infocar.pokermaster.core.model.TableConfig
 import com.infocar.pokermaster.engine.controller.llm.LlmAdvisor
 import com.infocar.pokermaster.engine.rules.Rng
@@ -84,14 +85,24 @@ class GameController(
     suspend fun npcActWithLlm(
         advisor: LlmAdvisor?,
         timeoutMs: Long = AiDriver.DEFAULT_LLM_TIMEOUT_MS,
-    ): GameState {
+    ): GameState = npcActAndLog(advisor, timeoutMs).state
+
+    /**
+     * M5-B: NPC 액션을 적용하면서 실제로 선택된 [Action] 과 적용 직전 street 도 함께 반환.
+     * 핸드 히스토리 로그 수집에 필요 (TableViewModel 이 ActionLogEntry 를 쌓을 수 있도록).
+     */
+    suspend fun npcActAndLog(
+        advisor: LlmAdvisor?,
+        timeoutMs: Long = AiDriver.DEFAULT_LLM_TIMEOUT_MS,
+    ): NpcActResult {
         val seat = _state.toActSeat ?: error("no current toActSeat")
         val p = _state.players.first { it.seat == seat }
         require(!p.isHuman) { "current seat $seat is human — call humanAct" }
         val persona = AiDriver.resolvePersona(p)
+        val streetBefore = _state.street
         val action = aiDriver.actWithLlm(_state, seat, persona, advisor, timeoutMs)
         _state = HoldemReducer.act(_state, seat, action, currentRng)
-        return _state
+        return NpcActResult(state = _state, actorSeat = seat, action = action, streetBefore = streetBefore)
     }
 
     /** 쇼다운 UI 애니메이션 완료 후 호출 — pending 해제. */
@@ -130,4 +141,15 @@ class GameController(
 data class ResumeSeed(
     val state: GameState,
     val rng: Rng,
+)
+
+/**
+ * M5-B: NPC 액션 적용 결과. [action] 은 실제로 reducer 에 투입된 Action ([state] 적용 후),
+ * [streetBefore] 는 액션 직전 street (로그 정리용).
+ */
+data class NpcActResult(
+    val state: GameState,
+    val actorSeat: Int,
+    val action: Action,
+    val streetBefore: Street,
 )

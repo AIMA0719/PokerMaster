@@ -90,14 +90,12 @@ fun AppNav() {
         ) { entry ->
             val modeName = entry.arguments?.getString("mode") ?: GameMode.HOLDEM_NL.name
             val mode = runCatching { GameMode.valueOf(modeName) }.getOrDefault(GameMode.HOLDEM_NL)
-            // Phase5-II-B: Hilt EntryPoint 로 LlmAdvisor 획득 후 TableScreen 에 주입.
-            // 엔진 미지원 단말에서도 advisor 자체는 non-null 로 반환되며 내부 suggest() 가 null
-            // 폴백 → TableVM 은 기존 DecisionCore 경로로 동작.
+            // Phase5-II-B / M5-B: Hilt EntryPoint 로 LlmAdvisor + HandHistoryRepository +
+            // AppScope CoroutineScope 를 꺼내 TableScreen 에 주입. 엔진 미지원 단말에서도
+            // advisor 는 non-null 이지만 suggest() 가 null 폴백 → DecisionCore 경로.
             val appCtx = LocalContext.current.applicationContext
-            val advisor = remember(appCtx) {
-                EntryPointAccessors
-                    .fromApplication(appCtx, LlmAdvisorEntryPoint::class.java)
-                    .llmAdvisor()
+            val entry = remember(appCtx) {
+                EntryPointAccessors.fromApplication(appCtx, LlmAdvisorEntryPoint::class.java)
             }
             TableScreen(
                 mode = mode,
@@ -106,7 +104,9 @@ fun AppNav() {
                         popUpTo(Routes.LOBBY) { inclusive = true }
                     }
                 },
-                llmAdvisor = advisor,
+                llmAdvisor = entry.llmAdvisor(),
+                historyRepo = entry.historyRepo(),
+                historyScope = entry.appScope(),
             )
         }
     }

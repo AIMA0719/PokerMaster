@@ -79,6 +79,8 @@ dependencies {
     implementation(projects.engine.llm)
     // Phase5-II-B: LlmAdvisorModule 이 LlmAdvisor/LlmAdvisorImpl 을 참조.
     implementation(projects.engine.controller)
+    // M5-B: HandHistoryRepository EntryPoint 타입 사용.
+    implementation(projects.core.data)
     implementation(projects.feature.lobby)
     implementation(projects.feature.table)
     implementation(projects.feature.onboarding)

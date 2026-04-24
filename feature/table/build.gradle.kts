@@ -12,6 +12,8 @@ android {
 dependencies {
     implementation(projects.core.model)
     implementation(projects.core.ui)
+    // M5-B: HandHistoryRepository / HandHistoryRecord / ActionLogEntry.
+    implementation(projects.core.data)
     implementation(projects.engine.rules)
     implementation(projects.engine.decision)
     implementation(projects.engine.controller)
