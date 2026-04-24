@@ -3,6 +3,7 @@ package com.infocar.pokermaster
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -56,7 +57,11 @@ fun AppNav() {
         ctx.getSharedPreferences(OnboardingPrefs.PREFS_NAME, android.content.Context.MODE_PRIVATE)
     }
 
-    NavHost(navController = nav, startDestination = Routes.SPLASH) {
+    NavHost(
+        navController = nav,
+        startDestination = Routes.SPLASH,
+        modifier = Modifier.fillMaxSize().safeDrawingPadding(),
+    ) {
         composable(Routes.SPLASH) {
             SplashScreen(onReady = {
                 nav.navigate(Routes.MODEL_GATE) {

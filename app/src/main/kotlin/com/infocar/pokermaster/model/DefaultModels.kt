@@ -18,9 +18,9 @@ object DefaultModels {
         displayName = "Llama 3.2 1B (Q4_K_M)",
         family = ModelFamily.LLAMA,
         fileName = "llama-3.2-1b-q4_k_m.gguf",
-        // TODO(M4-Phase1): 실 파일 크기·해시로 교체 (서명된 manifest fetch 전까지 placeholder).
-        sizeBytes = 770_000_000L,
-        sha256 = "0".repeat(64),
+        // 실측값 (2026-04-24, unsloth/Llama-3.2-1B-Instruct-GGUF Q4_K_M). 서명된 manifest fetch 붙으면 교체.
+        sizeBytes = 807_694_464L,
+        sha256 = "6f85a640a97cf2bf5b8e764087b1e83da0fdb51d7c9fab7d0fece9385611df83",
         primaryUrl = "https://huggingface.co/unsloth/Llama-3.2-1B-Instruct-GGUF/resolve/main/Llama-3.2-1B-Instruct-Q4_K_M.gguf",
         fallbackUrls = emptyList(),
         license = ModelLicense.LLAMA_COMMUNITY,
