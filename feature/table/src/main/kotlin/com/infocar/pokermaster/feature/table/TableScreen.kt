@@ -145,7 +145,10 @@ fun TableScreen(
     var currentGuideStep by remember { mutableStateOf<GuideStep?>(null) }
     // 최초 guideSettings 도달 시 한 번만 초기 step 결정 (이후 토글은 명시적으로 처리).
     LaunchedEffect(Unit) {
-        val first = settingsRepo.guideSettings.first()
+        // M7-BugFix: DataStore IO 예외(디스크 풀/파일 손상) 가 composable scope 로 전파되면
+        // 앱이 죽음. runCatching + Default 폴백으로 격리.
+        val first = runCatching { settingsRepo.guideSettings.first() }
+            .getOrDefault(GuideSettings.Default)
         currentGuideStep = if (first.guideModeEnabled) first.initialStep() else null
     }
     val onToggleGuide: () -> Unit = {

@@ -31,9 +31,13 @@ class GameController(
     private var _state: GameState
 
     init {
-        if (resumeFrom != null) {
-            currentRng = resumeFrom.rng
-            _state = resumeFrom.state
+        // M7-BugFix: 복원 상태의 toActSeat 가 이미 all-in/folded seat 을 가리키는 drift 를
+        // 감지하면 resume 무시하고 새 핸드로 폴백 (UI 는 snapshot 이 깨졌다는 사실을 직접 알 수 없으므로
+        // 조용히 새 핸드로 복구).
+        val validResume = resumeFrom?.takeIf { isResumeStateValid(it.state) }
+        if (validResume != null) {
+            currentRng = validResume.rng
+            _state = validResume.state
         } else {
             currentRng = rngSupplier(INITIAL_HAND_INDEX)
             _state = HoldemReducer.startHand(
@@ -47,16 +51,26 @@ class GameController(
         }
     }
 
+    /** toActSeat 이 존재하면 그 seat 이 active 인지 검증. null 이면 쇼다운 대기 — OK. */
+    private fun isResumeStateValid(s: GameState): Boolean {
+        val toAct = s.toActSeat ?: return s.pendingShowdown != null
+        val p = s.players.firstOrNull { it.seat == toAct } ?: return false
+        return p.active
+    }
+
     val state: GameState get() = _state
 
     /** 현재 핸드의 Rng (snapshot 시 seed 기록용). */
     val rng: Rng get() = currentRng
 
-    /** 사람 플레이어의 액션 적용. toAct 가 인간이 아니면 실패. */
+    /**
+     * 사람 플레이어의 액션 적용. M7-BugFix: toAct null / 불일치 상태에선 noop (UI race 방어).
+     * 기존엔 `error("no current toActSeat")` 로 프로세스 크래시.
+     */
     fun humanAct(action: Action): GameState {
-        val seat = _state.toActSeat ?: error("no current toActSeat")
-        val p = _state.players.first { it.seat == seat }
-        require(p.isHuman) { "current seat $seat is not human" }
+        val seat = _state.toActSeat ?: return _state
+        val p = _state.players.firstOrNull { it.seat == seat } ?: return _state
+        if (!p.isHuman) return _state
         _state = HoldemReducer.act(_state, seat, action, currentRng)
         return _state
     }
@@ -66,9 +80,9 @@ class GameController(
      * Monte Carlo equity 가 5~30ms 걸릴 수 있음.
      */
     fun npcAct(): GameState {
-        val seat = _state.toActSeat ?: error("no current toActSeat")
-        val p = _state.players.first { it.seat == seat }
-        require(!p.isHuman) { "current seat $seat is human — call humanAct" }
+        val seat = _state.toActSeat ?: return _state
+        val p = _state.players.firstOrNull { it.seat == seat } ?: return _state
+        if (p.isHuman) return _state
         val persona = AiDriver.resolvePersona(p)
         val action = aiDriver.act(_state, seat, persona)
         _state = HoldemReducer.act(_state, seat, action, currentRng)
@@ -85,7 +99,7 @@ class GameController(
     suspend fun npcActWithLlm(
         advisor: LlmAdvisor?,
         timeoutMs: Long = AiDriver.DEFAULT_LLM_TIMEOUT_MS,
-    ): GameState = npcActAndLog(advisor, timeoutMs).state
+    ): GameState = npcActAndLog(advisor, timeoutMs)?.state ?: _state
 
     /**
      * M5-B: NPC 액션을 적용하면서 실제로 선택된 [Action] 과 적용 직전 street 도 함께 반환.
@@ -94,10 +108,11 @@ class GameController(
     suspend fun npcActAndLog(
         advisor: LlmAdvisor?,
         timeoutMs: Long = AiDriver.DEFAULT_LLM_TIMEOUT_MS,
-    ): NpcActResult {
-        val seat = _state.toActSeat ?: error("no current toActSeat")
-        val p = _state.players.first { it.seat == seat }
-        require(!p.isHuman) { "current seat $seat is human — call humanAct" }
+    ): NpcActResult? {
+        // M7-BugFix: toAct null / 인간 차례 / 비-active seat → null 반환해 호출자 loop 조기 탈출.
+        val seat = _state.toActSeat ?: return null
+        val p = _state.players.firstOrNull { it.seat == seat } ?: return null
+        if (p.isHuman || !p.active) return null
         val persona = AiDriver.resolvePersona(p)
         val streetBefore = _state.street
         val action = aiDriver.actWithLlm(_state, seat, persona, advisor, timeoutMs)
@@ -105,8 +120,9 @@ class GameController(
         return NpcActResult(state = _state, actorSeat = seat, action = action, streetBefore = streetBefore)
     }
 
-    /** 쇼다운 UI 애니메이션 완료 후 호출 — pending 해제. */
+    /** 쇼다운 UI 애니메이션 완료 후 호출 — pending 해제. pending 이 없으면 noop. */
     fun ackShowdown(): GameState {
+        if (_state.pendingShowdown == null) return _state
         _state = HoldemReducer.ackShowdown(_state)
         return _state
     }

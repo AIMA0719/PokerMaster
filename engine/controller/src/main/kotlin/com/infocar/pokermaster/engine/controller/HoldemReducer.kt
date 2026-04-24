@@ -188,8 +188,9 @@ object HoldemReducer {
 
     private fun applyCheck(state: GameState, seat: Int): GameState {
         val me = state.players.first { it.seat == seat }
-        require(me.committedThisStreet == state.betToCall) {
-            "cannot check — committed ${me.committedThisStreet} < betToCall ${state.betToCall}"
+        // M7-BugFix: 체크 불가(콜 필요) 상태에서 CHECK 오면 CALL 로 강등 — UI stale/race 방어.
+        if (me.committedThisStreet < state.betToCall) {
+            return applyCall(state, seat)
         }
         val ps = state.players.map {
             if (it.seat == seat) it.copy(actedThisStreet = true) else it
@@ -200,9 +201,21 @@ object HoldemReducer {
     private fun applyCall(state: GameState, seat: Int): GameState {
         val me = state.players.first { it.seat == seat }
         val rawDelta = state.betToCall - me.committedThisStreet
-        require(rawDelta > 0) { "nothing to call" }
+        // M7-BugFix: "nothing to call" → CHECK 로 강등.
+        if (rawDelta <= 0) {
+            val ps = state.players.map {
+                if (it.seat == seat) it.copy(actedThisStreet = true) else it
+            }
+            return state.copy(players = ps, stateVersion = state.stateVersion + 1)
+        }
         val delta = rawDelta.coerceAtMost(me.chips)
-        require(delta > 0) { "no chips to call" }
+        // me.chips==0 인 active seat 은 invariant 상 불가능이나 방어적으로 noop.
+        if (delta <= 0) {
+            val ps = state.players.map {
+                if (it.seat == seat) it.copy(actedThisStreet = true) else it
+            }
+            return state.copy(players = ps, stateVersion = state.stateVersion + 1)
+        }
         val becomeAllIn = delta == me.chips
         val ps = state.players.map {
             if (it.seat == seat) it.copy(
@@ -218,24 +231,28 @@ object HoldemReducer {
 
     private fun applyBetOrRaise(state: GameState, seat: Int, action: Action): GameState {
         val me = state.players.first { it.seat == seat }
-        require(state.reopenAction) {
-            "action not re-opened (less-than-min-raise all-in earlier) — call/fold only"
+        // M7-BugFix: action 재오픈 불가, stack 소진, invalid target → CALL/CHECK 로 강등.
+        if (!state.reopenAction || me.chips == 0L || action.amount <= state.betToCall) {
+            return if (state.betToCall > me.committedThisStreet) applyCall(state, seat)
+            else applyCheck(state, seat)
         }
         val target = action.amount
-        require(target > state.betToCall) { "bet/raise target must exceed current betToCall" }
         val delta = target - me.committedThisStreet
-        require(delta in 1..me.chips) { "bet/raise delta $delta out of range (stack=${me.chips})" }
+        if (delta !in 1..me.chips) {
+            // 범위 밖 → 가장 가까운 legal action 으로 강등.
+            return if (state.betToCall > me.committedThisStreet) applyCall(state, seat)
+            else applyCheck(state, seat)
+        }
 
         val wouldBeAllIn = delta == me.chips
         val raiseIncrement = target - state.betToCall
         val baselineRaise = maxOf(state.lastFullRaiseAmount, state.config.bigBlind)
         val isFullRaise = raiseIncrement >= baselineRaise
 
-        if (!isFullRaise) {
-            // less-than-min-raise 는 all-in 으로만 허용
-            require(wouldBeAllIn) {
-                "raise target $target not a full raise (need >= ${state.betToCall + baselineRaise}) and not all-in"
-            }
+        if (!isFullRaise && !wouldBeAllIn) {
+            // M7-BugFix: less-than-min-raise 인데 all-in 도 아닌 invalid 시도 → CALL 로 강등.
+            // (기존 require trip 대신 — UI/LLM 에서 잘못된 amount 를 보내도 크래시 방지.)
+            return applyCall(state, seat)
         }
 
         val newPlayers = state.players.map { p ->
@@ -266,7 +283,11 @@ object HoldemReducer {
 
     private fun applyAllIn(state: GameState, seat: Int): GameState {
         val me = state.players.first { it.seat == seat }
-        require(me.chips > 0) { "cannot all-in with 0 chips" }
+        // M7-BugFix: chips==0 (이미 all-in) 상태에서 ALL_IN 재투입 → CHECK/CALL 로 강등.
+        if (me.chips <= 0) {
+            return if (state.betToCall > me.committedThisStreet) applyCall(state, seat)
+            else applyCheck(state, seat)
+        }
         val target = me.committedThisStreet + me.chips
         return if (target > state.betToCall) {
             applyBetOrRaise(state, seat, Action(ActionType.RAISE, target))

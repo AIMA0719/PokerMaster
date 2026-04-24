@@ -163,18 +163,27 @@ class TableViewModel private constructor(
 
     // ---------------------------------------------------------------- Resume
 
-    /** 사용자가 "이어하기" 선택. */
+    /** 사용자가 "이어하기" 선택. M7-BugFix: 손상된 snapshot 에서도 crash 없이 새 핸드로 폴백. */
     fun onResumeAccept() {
         val snap = resumeRepo?.load() ?: run {
             _resumePrompt.value = null
             startTicking()
             return
         }
-        val rng = Rng.ofSeeds(
-            serverSeed = snap.rngServerSeedHex.hexToBytes(),
-            clientSeed = snap.rngClientSeedHex.hexToBytes(),
-            nonce = snap.rngNonce,
-        )
+        // M7-BugFix: 파일 손상/수동 편집으로 hex 필드가 깨져 있어도 앱이 죽지 않도록 runCatching.
+        val rng = runCatching {
+            Rng.ofSeeds(
+                serverSeed = snap.rngServerSeedHex.hexToBytes(),
+                clientSeed = snap.rngClientSeedHex.hexToBytes(),
+                nonce = snap.rngNonce,
+            )
+        }.getOrElse {
+            android.util.Log.w("TableVM", "resume snapshot has invalid hex — discarding", it)
+            resumeRepo?.clear()
+            _resumePrompt.value = null
+            startTicking()
+            return
+        }
         controller = GameController(
             config = config,
             initialPlayers = initialPlayers,
@@ -227,6 +236,10 @@ class TableViewModel private constructor(
                     // M7-BugFix: engine에서 assertion/크래시가 나도 전체 앱 죽이지 않음.
                     // 다음 인간 액션이나 resume으로 복구될 수 있도록 tick만 중단.
                     android.util.Log.e("TableVM", "NPC tick failed — aborting loop", t)
+                    return@launch
+                } ?: run {
+                    // M7-BugFix: GameController 가 null 반환 (toAct drift / 인간 차례) → 루프 종료.
+                    android.util.Log.w("TableVM", "npcActAndLog returned null — tick skipped")
                     return@launch
                 }
                 logAction(seat = result.actorSeat, action = result.action, streetOrdinal = result.streetBefore.ordinal)
@@ -334,10 +347,13 @@ class TableViewModel private constructor(
             /** M6-C: 지갑. null 이면 buy-in/settle 스킵 (테스트/프리뷰 호환). */
             walletRepo: WalletRepository? = null,
         ): TableViewModel {
-            require(mode == GameMode.HOLDEM_NL) {
-                "M3 MVP supports HOLDEM_NL only (mode=$mode)"
+            // M7-BugFix: 지원 외 모드가 외부 딥링크/nav arg 등으로 들어와도 crash 대신
+            // HOLDEM_NL 로 graceful degrade (로비에서 UX 차단도 별도 적용).
+            val effectiveMode = if (mode == GameMode.HOLDEM_NL) mode else {
+                android.util.Log.w("TableVM", "unsupported mode=$mode, falling back to HOLDEM_NL")
+                GameMode.HOLDEM_NL
             }
-            val config = TableConfig(mode = mode, seats = 2)
+            val config = TableConfig(mode = effectiveMode, seats = 2)
             val players = listOf(
                 PlayerState(
                     seat = 0, nickname = humanNickname, isHuman = true,

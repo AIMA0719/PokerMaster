@@ -77,9 +77,17 @@ fun LobbyScreen(
             Spacer(Modifier.height(16.dp))
 
             GameMode.entries.forEach { mode ->
+                // M3 MVP: HOLDEM_NL 만 엔진 지원. 나머지는 잔고와 무관하게 비활성.
+                val hasChips = wallet.balanceChips >= WalletRepository.TABLE_STAKE
+                val supported = mode == GameMode.HOLDEM_NL
                 ModeCard(
                     mode = mode,
-                    enabled = wallet.balanceChips >= WalletRepository.TABLE_STAKE,
+                    enabled = hasChips && supported,
+                    reasonIfDisabled = when {
+                        !supported -> "준비 중 (다음 업데이트)"
+                        !hasChips -> "잔고 부족 (최소 ${WalletRepository.TABLE_STAKE / 1000}k 필요)"
+                        else -> null
+                    },
                     onClick = { onSelectMode(mode) },
                 )
                 Spacer(Modifier.height(16.dp))
@@ -260,6 +268,7 @@ private fun GameMode.titleRes(): Int = when (this) {
 private fun ModeCard(
     mode: GameMode,
     enabled: Boolean = true,
+    reasonIfDisabled: String? = null,
     onClick: () -> Unit,
 ) {
     Card(
@@ -288,11 +297,11 @@ private fun ModeCard(
                 softWrap = false,
                 overflow = TextOverflow.Ellipsis,
             )
-            if (!enabled) {
+            if (!enabled && reasonIfDisabled != null) {
                 Text(
-                    "잔고 부족 (최소 ${WalletRepository.TABLE_STAKE / 1000}k 필요)",
+                    reasonIfDisabled,
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.error,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )

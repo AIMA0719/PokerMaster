@@ -38,21 +38,28 @@ class LobbyViewModel @Inject constructor(
     private val _events = MutableStateFlow<LobbyEvent?>(null)
     val events: StateFlow<LobbyEvent?> = _events.asStateFlow()
 
-    /** 화면 최초 진입 시 1회 호출 (hilt VM 기본 스코프) — daily check-in + 파산 감지. */
+    /**
+     * 화면 최초 진입 시 1회 호출 (hilt VM 기본 스코프) — daily check-in + 파산 감지.
+     * M7-BugFix: Room IO 예외가 viewModelScope 로 전파되면 VM 이 죽어 로비가 freeze.
+     * 모든 repo 호출을 runCatching 으로 격리.
+     */
     fun onEntered() = viewModelScope.launch {
-        when (val r = walletRepo.recordCheckIn(LocalDate.now())) {
-            is CheckInResult.Granted ->
-                _events.value = LobbyEvent.DailyBonus(r.bonus, r.newStreak, r.newBalance)
-            is CheckInResult.AlreadyCheckedIn -> { /* silent */ }
-        }
-        val state = walletRepo.getState()
+        runCatching { walletRepo.recordCheckIn(LocalDate.now()) }
+            .onSuccess { r ->
+                if (r is CheckInResult.Granted) {
+                    _events.value = LobbyEvent.DailyBonus(r.bonus, r.newStreak, r.newBalance)
+                }
+            }
+            .onFailure { android.util.Log.w("LobbyVM", "check-in failed", it) }
+        val state = runCatching { walletRepo.getState() }.getOrNull() ?: return@launch
         if (state.balanceChips < WalletRepository.TABLE_STAKE) {
             _events.value = LobbyEvent.Bankrupt(state.balanceChips)
         }
     }
 
     fun onResetBankrupt() = viewModelScope.launch {
-        walletRepo.resetBankrupt()
+        runCatching { walletRepo.resetBankrupt() }
+            .onFailure { android.util.Log.w("LobbyVM", "reset bankrupt failed", it) }
         _events.value = null
     }
 
