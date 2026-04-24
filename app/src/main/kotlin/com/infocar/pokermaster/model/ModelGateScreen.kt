@@ -28,6 +28,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.infocar.pokermaster.DeviceFingerprint
 import com.infocar.pokermaster.core.model.ModelEntry
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -55,8 +56,15 @@ fun ModelGateScreen(
     var wifiOnly by remember { mutableStateOf(true) }
     var cellularConsent by remember { mutableStateOf(false) }
 
-    // 초기 설치 확인 (IO)
+    // Phase3b-II: LLM 로드 하드 게이트 — 티어 LOW 또는 ActivityManager.isLowRamDevice() 차단.
+    // 게이트에 걸리면 다운로드/로드 자체를 막고 안내 문구 표시.
     LaunchedEffect(entry.id) {
+        val tier = DeviceFingerprint.classify(appCtx)
+        val blockReason = DeviceFingerprint.llmBlockReason(tier, appCtx)
+        if (blockReason != null) {
+            phase = Phase.Unsupported(blockReason)
+            return@LaunchedEffect
+        }
         val verify = withContext(Dispatchers.IO) { store.verify(entry) }
         phase = if (verify is ModelStore.VerifyResult.Valid) Phase.Ready else Phase.NotInstalled
     }
@@ -116,6 +124,7 @@ fun ModelGateScreen(
                     reason = p.reason,
                     onRetry = { phase = Phase.NotInstalled },
                 )
+                is Phase.Unsupported -> UnsupportedPanel(reason = p.reason)
                 Phase.Ready -> Unit  // 곧 onReady() 로 나감
             }
         }
@@ -127,6 +136,8 @@ private sealed interface Phase {
     data object NotInstalled : Phase
     data class Downloading(val state: DownloadState) : Phase
     data class Failed(val reason: String) : Phase
+    /** 하드웨어 제한으로 LLM 로드 불가 (LOW 티어 / isLowRamDevice). 다운로드 진입 자체를 막는다. */
+    data class Unsupported(val reason: String) : Phase
     data object Ready : Phase
 }
 
@@ -210,6 +221,28 @@ private fun DownloadingPanel(
         OutlinedButton(onClick = onCancel) {
             Text("취소")
         }
+    }
+}
+
+@Composable
+private fun UnsupportedPanel(reason: String) {
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+        Text(
+            text = "LLM 모드 사용 불가",
+            style = MaterialTheme.typography.headlineSmall,
+            color = MaterialTheme.colorScheme.error,
+            fontWeight = FontWeight.SemiBold,
+        )
+        Text(reason, style = MaterialTheme.typography.bodyMedium)
+        Text(
+            text = "기본 AI (Monte Carlo + persona) 로 계속 플레이할 수 있습니다.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+        )
     }
 }
 

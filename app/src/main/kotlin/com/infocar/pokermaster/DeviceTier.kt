@@ -53,6 +53,29 @@ object DeviceFingerprint {
     /** M4 에서 이 값이 true 이면 LLM 로드 차단 + 결정형 모드 강제. */
     fun shouldForceFallback(tier: DeviceTier): Boolean = tier == DeviceTier.LOW
 
+    /**
+     * Android `ActivityManager.isLowRamDevice()` — 플랫폼이 스스로 저RAM 으로 분류한 단말.
+     * 이 플래그가 켜지면 LLM 로드 시 확정적으로 OOM/thrash 하므로 (750MB 모델 + 34MB KV) 차단.
+     * Context 가 null 이면 false (보수적 — 차단 전 실물 확인 필요).
+     */
+    fun isLowRamDevice(context: Context?): Boolean {
+        val am = context?.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager ?: return false
+        return am.isLowRamDevice
+    }
+
+    /**
+     * LLM 로드 **하드 게이트** — Phase3b-II. 아래 중 하나라도 true 이면 모델 다운로드/로드 차단.
+     *  - [shouldForceFallback]: 티어 LOW (totalMem < 2GB 또는 cores < 4)
+     *  - [isLowRamDevice]: 플랫폼 저RAM 플래그
+     *
+     * 반환 문자열은 Unsupported 메시지로 UI 에 그대로 노출.
+     */
+    fun llmBlockReason(tier: DeviceTier, context: Context?): String? = when {
+        shouldForceFallback(tier) -> "저사양 단말 — LLM 로드 불가 (기본 AI 모드로 계속)"
+        isLowRamDevice(context) -> "플랫폼 저RAM 단말로 분류 — LLM 로드 차단"
+        else -> null
+    }
+
     private fun Context.totalMemMb(): Long {
         val am = getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager ?: return 0L
         val mi = ActivityManager.MemoryInfo()

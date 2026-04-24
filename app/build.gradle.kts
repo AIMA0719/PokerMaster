@@ -74,6 +74,9 @@ android {
 dependencies {
     implementation(projects.core.model)
     implementation(projects.core.ui)
+    // Phase3b-II: Application 이 LlmEngineHandle 을 @Inject + onTrimMemory 에서 backendFree.
+    // `:engine:llm` 은 api(:engine:llm-api) 로 LlmEngine 심볼을 transitive 전파한다.
+    implementation(projects.engine.llm)
     implementation(projects.feature.lobby)
     implementation(projects.feature.table)
     implementation(projects.feature.onboarding)
