@@ -28,12 +28,17 @@ add_library(pokermaster_llm SHARED
     pokermaster_llm.cpp
 )
 
-# ARMv8.2-A 최적화 — §5.5 "arm64-v8a 단일 + ARMv8.2-A 최적화".
-#   -fp16 은 FP16 수학, -dotprod 는 INT8 DP (llama.cpp Q4/Q8 속도 향상).
+# 컴파일 옵션 — Phase2c 감사에서 수정:
+#  -fno-exceptions 제거: llama.cpp 가 bad GGUF/OOM 에서 std::runtime_error 를 throw.
+#    우리 frame 이 nounwind 면 unwind 가 UB → std::terminate → SIGABRT. JNI 에서 catch 가능해야 함.
+#  -fno-rtti 유지: catch(std::exception&) 는 ABI 레벨이라 RTTI 불필요. 코드/SO 크기 절약.
+#  -fvisibility=hidden + -fvisibility-inlines-hidden: JNIEXPORT 심볼만 export, SO 수백 KB 축소.
+#  -march=armv8.2-a+fp16+dotprod: v1.1 §5.5 ARMv8.2-A 최적화 (FP16 수학 + INT8 DP → Q4/Q8 가속).
 target_compile_options(pokermaster_llm PRIVATE
     -O2
-    -fno-exceptions
     -fno-rtti
+    -fvisibility=hidden
+    -fvisibility-inlines-hidden
     -march=armv8.2-a+fp16+dotprod
     -ffunction-sections
     -fdata-sections

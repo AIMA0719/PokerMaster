@@ -39,7 +39,10 @@ android {
 
 dependencies {
     implementation(projects.core.model)
+    // Phase2c §5.6: LlamaCppClient suspend API + single-thread dispatcher.
+    implementation(libs.kotlinx.coroutines.android)
 
     testImplementation(libs.junit)
     testImplementation(libs.truth)
+    testImplementation(libs.kotlinx.coroutines.test)
 }
