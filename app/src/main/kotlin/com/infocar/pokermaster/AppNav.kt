@@ -22,6 +22,7 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.infocar.pokermaster.core.model.GameMode
 import com.infocar.pokermaster.di.LlmAdvisorEntryPoint
+import com.infocar.pokermaster.feature.history.HandDetailScreen
 import com.infocar.pokermaster.feature.history.HistoryListScreen
 import com.infocar.pokermaster.feature.lobby.LobbyScreen
 import com.infocar.pokermaster.feature.onboarding.OnboardingPrefs
@@ -38,7 +39,9 @@ private object Routes {
     const val LOBBY = "lobby"
     const val TABLE = "table/{mode}"
     const val HISTORY = "history"
+    const val HISTORY_DETAIL = "history/{id}"
     fun table(mode: GameMode) = "table/${mode.name}"
+    fun historyDetail(id: Long) = "history/$id"
 }
 
 @Composable
@@ -93,10 +96,14 @@ fun AppNav() {
         composable(Routes.HISTORY) {
             HistoryListScreen(
                 onBack = { nav.popBackStack() },
-                onOpenDetail = { _ ->
-                    // M5-D 에서 상세 리플레이 라우트 추가. 현재는 no-op.
-                },
+                onOpenDetail = { id -> nav.navigate(Routes.historyDetail(id)) },
             )
+        }
+        composable(
+            route = Routes.HISTORY_DETAIL,
+            arguments = listOf(navArgument("id") { type = NavType.LongType }),
+        ) {
+            HandDetailScreen(onBack = { nav.popBackStack() })
         }
         composable(
             route = Routes.TABLE,

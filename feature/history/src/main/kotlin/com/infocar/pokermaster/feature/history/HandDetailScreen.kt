@@ -1,0 +1,215 @@
+package com.infocar.pokermaster.feature.history
+
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.hilt.navigation.compose.hiltViewModel
+import com.infocar.pokermaster.core.data.history.ActionLogEntry
+import com.infocar.pokermaster.core.data.history.HandHistoryRecord
+import com.infocar.pokermaster.core.model.Card
+
+/**
+ * 핸드 상세 화면 — M5-D. 정적 요약: 헤더 / 초기 홀카드 / 커뮤니티 / 액션 로그 /
+ * Provably Fair 검증 섹션. Step-by-step scrubber 는 후속 버전.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun HandDetailScreen(
+    onBack: () -> Unit,
+    viewModel: HandDetailViewModel = hiltViewModel(),
+) {
+    val state by viewModel.state.collectAsState()
+
+    Scaffold(
+        modifier = Modifier.fillMaxSize(),
+        topBar = {
+            TopAppBar(
+                title = { Text("핸드 상세") },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "뒤로")
+                    }
+                },
+            )
+        },
+    ) { inner ->
+        if (state.loading) {
+            Centered(inner) { Text("불러오는 중…") }
+            return@Scaffold
+        }
+        if (state.notFound || state.record == null) {
+            Centered(inner) {
+                Text(
+                    "해당 핸드를 찾을 수 없습니다.",
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
+            return@Scaffold
+        }
+
+        val record = state.record!!
+        LazyColumn(
+            modifier = Modifier.fillMaxSize().padding(inner),
+            contentPadding = PaddingValues(12.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            item { HeaderCard(record = record) }
+            item { CardsCard(record = record) }
+            item { ActionsCard(actions = record.actions) }
+            item { ProvablyFairCard(record = record, seedVerified = state.seedVerified) }
+        }
+    }
+}
+
+@Composable
+private fun Centered(inner: PaddingValues, content: @Composable () -> Unit) {
+    Box(
+        Modifier.fillMaxSize().padding(inner),
+        contentAlignment = Alignment.Center,
+    ) { content() }
+}
+
+@Composable
+private fun HeaderCard(record: HandHistoryRecord) {
+    SectionCard(title = "#${record.handIndex} · ${record.mode}") {
+        Text("승자: " + (record.winnerSeat?.let { "seat $it" } ?: "무승부/사이드팟"))
+        Text("pot: ${record.potSize}")
+        Text(
+            text = "핸드 길이: ${(record.endedAt - record.startedAt) / 1000L}초",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+        )
+    }
+}
+
+@Composable
+private fun CardsCard(record: HandHistoryRecord) {
+    val state = record.initialState
+    SectionCard(title = "초기 카드") {
+        state.players.forEach { p ->
+            if (p.holeCards.isNotEmpty()) {
+                Text("seat ${p.seat} (${p.nickname}): " + p.holeCards.joinToString(" ") { it.short() })
+            }
+        }
+        if (state.community.isNotEmpty()) {
+            Text(
+                "community: " + state.community.joinToString(" ") { it.short() },
+                style = MaterialTheme.typography.bodyMedium,
+            )
+        }
+    }
+}
+
+@Composable
+private fun ActionsCard(actions: List<ActionLogEntry>) {
+    SectionCard(title = "액션 로그 (${actions.size})") {
+        if (actions.isEmpty()) {
+            Text(
+                "액션 없음",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+            )
+            return@SectionCard
+        }
+        actions.forEach { e ->
+            val streetLabel = when (e.streetIndex) {
+                0 -> "pre"
+                1 -> "flop"
+                2 -> "turn"
+                3 -> "river"
+                else -> "s${e.streetIndex}"
+            }
+            val amount = if (e.action.amount > 0L) " ${e.action.amount}" else ""
+            Text(
+                "[$streetLabel] seat ${e.seat} → ${e.action.type}$amount",
+                style = MaterialTheme.typography.bodySmall,
+                fontFamily = FontFamily.Monospace,
+            )
+        }
+    }
+}
+
+@Composable
+private fun ProvablyFairCard(record: HandHistoryRecord, seedVerified: Boolean) {
+    SectionCard(title = "Provably Fair (§3.5)") {
+        Text("commit: ${record.seedCommitHex.take(16)}…", fontFamily = FontFamily.Monospace)
+        Text("server: ${record.serverSeedHex.take(16)}…", fontFamily = FontFamily.Monospace)
+        Text("client: ${record.clientSeedHex.take(16)}…", fontFamily = FontFamily.Monospace)
+        Text("nonce: ${record.nonce}")
+        Text(
+            text = if (seedVerified) "✓ 검증 성공 (SHA-256 일치)" else "✗ 검증 실패",
+            fontWeight = FontWeight.SemiBold,
+            color = if (seedVerified) Color(0xFF2E7D32) else MaterialTheme.colorScheme.error,
+        )
+    }
+}
+
+@Composable
+private fun SectionCard(title: String, content: @Composable () -> Unit) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+        ),
+    ) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(
+                title,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+            )
+            content()
+        }
+    }
+}
+
+private fun Card.short(): String {
+    val rankShort = when (rank) {
+        com.infocar.pokermaster.core.model.Rank.TWO -> "2"
+        com.infocar.pokermaster.core.model.Rank.THREE -> "3"
+        com.infocar.pokermaster.core.model.Rank.FOUR -> "4"
+        com.infocar.pokermaster.core.model.Rank.FIVE -> "5"
+        com.infocar.pokermaster.core.model.Rank.SIX -> "6"
+        com.infocar.pokermaster.core.model.Rank.SEVEN -> "7"
+        com.infocar.pokermaster.core.model.Rank.EIGHT -> "8"
+        com.infocar.pokermaster.core.model.Rank.NINE -> "9"
+        com.infocar.pokermaster.core.model.Rank.TEN -> "T"
+        com.infocar.pokermaster.core.model.Rank.JACK -> "J"
+        com.infocar.pokermaster.core.model.Rank.QUEEN -> "Q"
+        com.infocar.pokermaster.core.model.Rank.KING -> "K"
+        com.infocar.pokermaster.core.model.Rank.ACE -> "A"
+    }
+    val suitLetter = when (suit) {
+        com.infocar.pokermaster.core.model.Suit.SPADE -> "s"
+        com.infocar.pokermaster.core.model.Suit.HEART -> "h"
+        com.infocar.pokermaster.core.model.Suit.DIAMOND -> "d"
+        com.infocar.pokermaster.core.model.Suit.CLUB -> "c"
+    }
+    return "$rankShort$suitLetter"
+}
