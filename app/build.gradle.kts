@@ -84,6 +84,8 @@ dependencies {
     implementation(projects.feature.lobby)
     implementation(projects.feature.table)
     implementation(projects.feature.onboarding)
+    // M5-C: 히스토리 리스트 화면.
+    implementation(projects.feature.history)
 
     implementation(libs.androidx.datastore.preferences)
     implementation(libs.androidx.work.runtime.ktx)

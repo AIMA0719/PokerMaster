@@ -25,6 +25,7 @@ import com.infocar.pokermaster.core.model.GameMode
 @Composable
 fun LobbyScreen(
     onSelectMode: (GameMode) -> Unit = {},
+    onOpenHistory: () -> Unit = {},
 ) {
     Surface(
         modifier = Modifier.fillMaxSize(),
@@ -52,6 +53,33 @@ fun LobbyScreen(
             GameMode.entries.forEach { mode ->
                 ModeCard(mode = mode, onClick = { onSelectMode(mode) })
                 Spacer(Modifier.height(16.dp))
+            }
+
+            Spacer(Modifier.height(16.dp))
+
+            // M5-C: 핸드 히스토리 진입점. 다른 모드 카드와 유사한 스타일.
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(72.dp)
+                    .clip(RoundedCornerShape(16.dp)),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                ),
+                onClick = onOpenHistory,
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(20.dp),
+                    verticalArrangement = Arrangement.Center,
+                ) {
+                    Text(
+                        text = "핸드 히스토리",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
         }
     }

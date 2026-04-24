@@ -22,6 +22,7 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.infocar.pokermaster.core.model.GameMode
 import com.infocar.pokermaster.di.LlmAdvisorEntryPoint
+import com.infocar.pokermaster.feature.history.HistoryListScreen
 import com.infocar.pokermaster.feature.lobby.LobbyScreen
 import com.infocar.pokermaster.feature.onboarding.OnboardingPrefs
 import com.infocar.pokermaster.feature.onboarding.OnboardingScreen
@@ -36,6 +37,7 @@ private object Routes {
     const val ONBOARDING = "onboarding"
     const val LOBBY = "lobby"
     const val TABLE = "table/{mode}"
+    const val HISTORY = "history"
     fun table(mode: GameMode) = "table/${mode.name}"
 }
 
@@ -77,12 +79,24 @@ fun AppNav() {
             })
         }
         composable(Routes.LOBBY) {
-            LobbyScreen(onSelectMode = { mode ->
-                // M3 MVP: HOLDEM_NL 만 지원 — 다른 모드는 로비에서 lock 예정
-                if (mode == GameMode.HOLDEM_NL) {
-                    nav.navigate(Routes.table(mode))
-                }
-            })
+            LobbyScreen(
+                onSelectMode = { mode ->
+                    // M3 MVP: HOLDEM_NL 만 지원 — 다른 모드는 로비에서 lock 예정
+                    if (mode == GameMode.HOLDEM_NL) {
+                        nav.navigate(Routes.table(mode))
+                    }
+                },
+                // M5-C: 히스토리 진입점.
+                onOpenHistory = { nav.navigate(Routes.HISTORY) },
+            )
+        }
+        composable(Routes.HISTORY) {
+            HistoryListScreen(
+                onBack = { nav.popBackStack() },
+                onOpenDetail = { _ ->
+                    // M5-D 에서 상세 리플레이 라우트 추가. 현재는 no-op.
+                },
+            )
         }
         composable(
             route = Routes.TABLE,
