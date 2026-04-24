@@ -28,6 +28,7 @@ import com.infocar.pokermaster.feature.lobby.LobbyScreen
 import com.infocar.pokermaster.feature.onboarding.OnboardingPrefs
 import com.infocar.pokermaster.feature.onboarding.OnboardingScreen
 import com.infocar.pokermaster.feature.table.TableScreen
+import com.infocar.pokermaster.feature.table.settings.SettingsScreen
 import com.infocar.pokermaster.model.ModelGateScreen
 import dagger.hilt.android.EntryPointAccessors
 import kotlinx.coroutines.delay
@@ -40,6 +41,7 @@ private object Routes {
     const val TABLE = "table/{mode}"
     const val HISTORY = "history"
     const val HISTORY_DETAIL = "history/{id}"
+    const val SETTINGS = "settings"
     fun table(mode: GameMode) = "table/${mode.name}"
     fun historyDetail(id: Long) = "history/$id"
 }
@@ -91,6 +93,14 @@ fun AppNav() {
                 },
                 // M5-C: 히스토리 진입점.
                 onOpenHistory = { nav.navigate(Routes.HISTORY) },
+                // M6-A: 설정 진입점.
+                onOpenSettings = { nav.navigate(Routes.SETTINGS) },
+            )
+        }
+        composable(Routes.SETTINGS) {
+            SettingsScreen(
+                onBack = { nav.popBackStack() },
+                versionName = BuildConfig.VERSION_NAME,
             )
         }
         composable(Routes.HISTORY) {

@@ -11,8 +11,11 @@ import com.infocar.pokermaster.feature.table.a11y.A11ySettings
 import com.infocar.pokermaster.feature.table.a11y.ColorblindMode
 import com.infocar.pokermaster.feature.table.guide.GuideSettings
 import com.infocar.pokermaster.feature.table.sfx.SfxPolicy
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import javax.inject.Inject
+import javax.inject.Singleton
 
 private val Context.settingsDataStore: DataStore<Preferences> by preferencesDataStore(name = "poker_settings")
 
@@ -24,7 +27,10 @@ private val Context.settingsDataStore: DataStore<Preferences> by preferencesData
  *  - 누락된 키는 각 설정의 DEFAULT 상수로 보정하므로 스키마 추가 시 backward compatible.
  *  - ColorblindMode 는 enum.name 으로 직렬화. unknown 문자열이면 NORMAL 로 복구.
  */
-class SettingsRepository(context: Context) {
+@Singleton
+class SettingsRepository @Inject constructor(
+    @ApplicationContext context: Context,
+) {
 
     private val store = context.applicationContext.settingsDataStore
 

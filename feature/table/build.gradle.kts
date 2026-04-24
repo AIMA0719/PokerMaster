@@ -12,8 +12,9 @@ android {
 dependencies {
     implementation(projects.core.model)
     implementation(projects.core.ui)
-    // M5-B: HandHistoryRepository / HandHistoryRecord / ActionLogEntry.
+    // M5-B / M6-A: HandHistoryRepository + 설정 화면이 Hilt VM 으로 사용.
     implementation(projects.core.data)
+    implementation(libs.androidx.hilt.navigation.compose)
     implementation(projects.engine.rules)
     implementation(projects.engine.decision)
     implementation(projects.engine.controller)

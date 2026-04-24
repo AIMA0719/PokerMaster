@@ -26,6 +26,7 @@ import com.infocar.pokermaster.core.model.GameMode
 fun LobbyScreen(
     onSelectMode: (GameMode) -> Unit = {},
     onOpenHistory: () -> Unit = {},
+    onOpenSettings: () -> Unit = {},
 ) {
     Surface(
         modifier = Modifier.fillMaxSize(),
@@ -76,6 +77,33 @@ fun LobbyScreen(
                 ) {
                     Text(
                         text = "핸드 히스토리",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+
+            Spacer(Modifier.height(8.dp))
+
+            // M6-A: 설정 진입점.
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(72.dp)
+                    .clip(RoundedCornerShape(16.dp)),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                ),
+                onClick = onOpenSettings,
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(20.dp),
+                    verticalArrangement = Arrangement.Center,
+                ) {
+                    Text(
+                        text = "설정",
                         style = MaterialTheme.typography.titleMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
