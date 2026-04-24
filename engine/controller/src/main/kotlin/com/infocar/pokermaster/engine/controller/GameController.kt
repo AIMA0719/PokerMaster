@@ -4,6 +4,7 @@ import com.infocar.pokermaster.core.model.Action
 import com.infocar.pokermaster.core.model.GameState
 import com.infocar.pokermaster.core.model.PlayerState
 import com.infocar.pokermaster.core.model.TableConfig
+import com.infocar.pokermaster.engine.controller.llm.LlmAdvisor
 import com.infocar.pokermaster.engine.rules.Rng
 
 /**
@@ -69,6 +70,26 @@ class GameController(
         require(!p.isHuman) { "current seat $seat is human — call humanAct" }
         val persona = AiDriver.resolvePersona(p)
         val action = aiDriver.act(_state, seat, persona)
+        _state = HoldemReducer.act(_state, seat, action, currentRng)
+        return _state
+    }
+
+    /**
+     * Phase5-II-A: LLM advisor 가 있으면 LLM 제안을 먼저 시도하고 실패 시 [aiDriver.act] 폴백.
+     *
+     * advisor 가 null 이면 [npcAct] 와 동일하게 동작 (단, suspend 시그니처). TableVM 이 withContext
+     * 없이 직접 호출할 수 있다 (내부 Monte Carlo 는 여전히 blocking CPU 작업이므로 호출자가 적절한
+     * dispatcher 에서 launch 해야 한다 — feature:table 의 startTicking 루프가 담당).
+     */
+    suspend fun npcActWithLlm(
+        advisor: LlmAdvisor?,
+        timeoutMs: Long = AiDriver.DEFAULT_LLM_TIMEOUT_MS,
+    ): GameState {
+        val seat = _state.toActSeat ?: error("no current toActSeat")
+        val p = _state.players.first { it.seat == seat }
+        require(!p.isHuman) { "current seat $seat is human — call humanAct" }
+        val persona = AiDriver.resolvePersona(p)
+        val action = aiDriver.actWithLlm(_state, seat, persona, advisor, timeoutMs)
         _state = HoldemReducer.act(_state, seat, action, currentRng)
         return _state
     }

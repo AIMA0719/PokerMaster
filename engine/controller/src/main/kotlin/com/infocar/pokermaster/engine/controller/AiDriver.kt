@@ -4,10 +4,12 @@ import com.infocar.pokermaster.core.model.Action
 import com.infocar.pokermaster.core.model.ActionType
 import com.infocar.pokermaster.core.model.GameState
 import com.infocar.pokermaster.core.model.PlayerState
+import com.infocar.pokermaster.engine.controller.llm.LlmAdvisor
 import com.infocar.pokermaster.engine.decision.ActionCandidate
 import com.infocar.pokermaster.engine.decision.DecisionCore
 import com.infocar.pokermaster.engine.decision.GameContext
 import com.infocar.pokermaster.engine.decision.Persona
+import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * NPC 차례에 결정형 코어(M2)에 게임 상태를 변환해 주고, 반환된 후보를 적법 액션으로 강제 클램프.
@@ -28,6 +30,48 @@ class AiDriver(
         val result = decisionCore.decide(ctx, persona)
         val top = result.candidates.firstOrNull() ?: return Action(ActionType.FOLD)
         return legalize(state, seat, top)
+    }
+
+    /**
+     * Phase5-II-A: LLM advisor 를 선택적으로 적용하는 suspend 버전.
+     *
+     * 알고리즘:
+     *  1. DecisionCore 로 기본 EV 후보군 계산 (LLM 실패 대비 베이스).
+     *  2. [advisor] 가 non-null 이면 [withTimeoutOrNull] 로 제안 요청.
+     *  3. 반환된 [com.infocar.pokermaster.engine.controller.llm.LlmDecision] 이 유효한 [ActionType]
+     *     을 담고 있으면 그것을 [ActionCandidate] 로 변환해 [legalize] 에 투입.
+     *  4. timeout / null / schema miss 는 모두 베이스 (candidates.first()) 로 폴백.
+     *
+     * 설계서 §5 의 LLM→Persona→MonteCarlo 폴백 5단계 중 1~2단계 해당. 후속 단계는 Phase5-II-B 의
+     * TableVM / GameController 통합에서 persona heuristic 이 이미 DecisionCore 내부에 포함.
+     */
+    suspend fun actWithLlm(
+        state: GameState,
+        seat: Int,
+        persona: Persona?,
+        advisor: LlmAdvisor?,
+        timeoutMs: Long = DEFAULT_LLM_TIMEOUT_MS,
+    ): Action {
+        val ctx = buildContext(state, seat)
+        val result = decisionCore.decide(ctx, persona)
+
+        val llmCandidate: ActionCandidate? = advisor?.let { adv ->
+            val decision = runCatching {
+                withTimeoutOrNull(timeoutMs) { adv.suggest(ctx, result, persona) }
+            }.getOrNull()
+            decision?.actionTypeOrNull()?.let { at ->
+                ActionCandidate(
+                    action = at,
+                    amount = decision.amount,
+                    ev = 0.0,  // LLM 은 EV 반환 안 함 — legalize 단계에서 clamp.
+                )
+            }
+        }
+
+        val chosen = llmCandidate
+            ?: result.candidates.firstOrNull()
+            ?: return Action(ActionType.FOLD)
+        return legalize(state, seat, chosen)
     }
 
     private fun buildContext(state: GameState, seat: Int): GameContext {
@@ -85,6 +129,9 @@ class AiDriver(
 
     /** Persona resolver 헬퍼 — PlayerState.personaId(문자열) → [Persona] 매핑. 실패 시 null. */
     companion object {
+        /** LLM 추론 timeout — 포커 UX 상 500ms 를 넘기면 NPC 턴이 지연된 느낌. */
+        const val DEFAULT_LLM_TIMEOUT_MS: Long = 500L
+
         fun resolvePersona(player: PlayerState): Persona? =
             player.personaId?.let { id -> runCatching { Persona.valueOf(id) }.getOrNull() }
     }

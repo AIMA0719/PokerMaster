@@ -23,6 +23,8 @@ testing {
                 implementation(libs.junit.jupiter.api)
                 implementation(libs.junit.jupiter.params)
                 implementation(libs.truth)
+                // Phase5-II-A: AiDriverLlmTest runTest / advance + withTimeoutOrNull 검증.
+                implementation(libs.kotlinx.coroutines.test)
             }
         }
     }
