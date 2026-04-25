@@ -15,6 +15,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -42,6 +43,13 @@ import com.infocar.pokermaster.core.model.symbol
 import com.infocar.pokermaster.core.ui.theme.PokerColors
 import com.infocar.pokermaster.core.ui.theme.PokerMasterTheme
 import com.infocar.pokermaster.feature.table.a11y.A11yStrings
+
+/**
+ * 고대비 카드 모드 — A11ySettings.highContrastCards 가 true 일 때 [PlayingCard] 가 더 진한
+ * suit 색상 + 두꺼운 카드 테두리로 그려진다. TableScreen 에서 CompositionLocalProvider 로
+ * 사용자 설정값을 주입한다. 기본값 false (저시력 미사용자 영향 없음).
+ */
+val LocalHighContrastCards = staticCompositionLocalOf { false }
 
 /**
  * 플레잉 카드 컴포넌트. v1.1 §4.3 — 저작권 회피를 위해 자체 일러스트 없이
@@ -120,8 +128,10 @@ private fun CardFace(
     gold: Color,
     width: Dp,
 ) {
+    val highContrast = LocalHighContrastCards.current
     val suitColor = when (card.suit) {
-        Suit.HEART, Suit.DIAMOND -> Color(0xFFC8372D)
+        // 고대비: 빨강을 더 짙은 톤(B30000) 으로 — 다크모드에서도 잘 보임. 검정은 그대로.
+        Suit.HEART, Suit.DIAMOND -> if (highContrast) Color(0xFFB30000) else Color(0xFFC8372D)
         Suit.SPADE, Suit.CLUB -> Color.Black
     }
     // 폰트 사이즈 비례 — 44dp 기준 16sp/10sp 가 미니카드(22dp) 에선 8sp/5sp 로 축소.
@@ -132,8 +142,10 @@ private fun CardFace(
     val borderModifier = if (highlight) {
         Modifier.border(BorderStroke(2.dp, gold), RoundedCornerShape(cornerRadius))
     } else {
+        // 고대비: 테두리 두께/대비 강화 (0.5dp@25% → 1.5dp@90%).
+        val (bw, ba) = if (highContrast) 1.5.dp to 0.9f else 0.5.dp to 0.25f
         Modifier.border(
-            BorderStroke(0.5.dp, Color.Black.copy(alpha = 0.25f)),
+            BorderStroke(bw, Color.Black.copy(alpha = ba)),
             RoundedCornerShape(cornerRadius),
         )
     }

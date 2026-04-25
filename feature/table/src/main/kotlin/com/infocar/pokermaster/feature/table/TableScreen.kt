@@ -46,6 +46,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -54,6 +55,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import com.infocar.pokermaster.feature.table.a11y.A11ySettings
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -228,6 +230,10 @@ fun TableScreen(
         currentGuideStep = if (next.guideModeEnabled) next.initialStep() else null
     }
 
+    // A11y 설정 — 고대비 카드는 PlayingCard 가 LocalHighContrastCards 로 받는다.
+    val a11ySettings by settingsRepo.a11ySettings.collectAsState(initial = A11ySettings.Default)
+
+    CompositionLocalProvider(LocalHighContrastCards provides a11ySettings.highContrastCards) {
     Box(modifier = Modifier.fillMaxSize()) {
         TableContent(
             state = displayState,
@@ -270,6 +276,7 @@ fun TableScreen(
             )
         }
     }
+    } // CompositionLocalProvider
     // 이어하기 기능 제거 — ResumeDialog 호출 없음.
 }
 
