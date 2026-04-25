@@ -233,7 +233,10 @@ fun TableScreen(
     // A11y 설정 — 고대비 카드는 PlayingCard 가 LocalHighContrastCards 로 받는다.
     val a11ySettings by settingsRepo.a11ySettings.collectAsState(initial = A11ySettings.Default)
 
-    CompositionLocalProvider(LocalHighContrastCards provides a11ySettings.highContrastCards) {
+    CompositionLocalProvider(
+        LocalHighContrastCards provides a11ySettings.highContrastCards,
+        LocalReduceMotion provides a11ySettings.reduceMotion,
+    ) {
     Box(modifier = Modifier.fillMaxSize()) {
         TableContent(
             state = displayState,

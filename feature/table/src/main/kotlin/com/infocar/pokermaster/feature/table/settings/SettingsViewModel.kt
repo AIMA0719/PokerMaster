@@ -69,6 +69,10 @@ class SettingsViewModel @Inject constructor(
         settingsRepo.setA11ySettings(state.value.a11y.copy(reduceMotion = enabled))
     }
 
+    fun setHighContrastCards(enabled: Boolean) = viewModelScope.launch {
+        settingsRepo.setA11ySettings(state.value.a11y.copy(highContrastCards = enabled))
+    }
+
     fun setGuideMode(enabled: Boolean) = viewModelScope.launch {
         settingsRepo.setGuideSettings(state.value.guide.copy(guideModeEnabled = enabled))
     }

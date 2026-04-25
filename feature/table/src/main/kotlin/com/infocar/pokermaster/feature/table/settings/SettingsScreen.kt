@@ -174,6 +174,11 @@ fun SettingsScreen(
                         checked = state.a11y.reduceMotion,
                         onChange = viewModel::setReduceMotion,
                     )
+                    ToggleRow(
+                        label = "고대비 카드",
+                        checked = state.a11y.highContrastCards,
+                        onChange = viewModel::setHighContrastCards,
+                    )
                 }
 
                 SectionCard("가이드") {

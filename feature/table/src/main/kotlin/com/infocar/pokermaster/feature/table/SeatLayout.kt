@@ -411,7 +411,10 @@ private fun MiniHoleCards(
     totalActiveSeats: Int = 1,
 ) {
     val seats = totalActiveSeats.coerceAtLeast(1)
-    val seatStagger = DealAnimationSpec.HOLE_SEAT_STAGGER_MS
+    // M7: reduceMotion 시 deal stagger / 카드 슬라이드 거의 즉시. 사용자 인지 부담 감소.
+    val reduceMotion = LocalReduceMotion.current
+    val seatStagger = if (reduceMotion) 0 else DealAnimationSpec.HOLE_SEAT_STAGGER_MS
+    val cardDuration = if (reduceMotion) 0 else DealAnimationSpec.HOLE_CARD_DURATION_MS
     Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
         for (i in 0 until 2) {
             val card = cards.getOrNull(i)
@@ -426,12 +429,12 @@ private fun MiniHoleCards(
             // 카지노 라운드: 모든 시트가 1장씩 받은 뒤 두 번째 라운드 시작.
             val absoluteDelay = (i * seats + dealOrderIndex) * seatStagger
             val slideSpec = tween<IntOffset>(
-                durationMillis = DealAnimationSpec.HOLE_CARD_DURATION_MS,
+                durationMillis = cardDuration,
                 delayMillis = absoluteDelay,
                 easing = FastOutSlowInEasing,
             )
             val fadeSpec = tween<Float>(
-                durationMillis = DealAnimationSpec.HOLE_CARD_DURATION_MS,
+                durationMillis = cardDuration,
                 delayMillis = absoluteDelay,
             )
             AnimatedVisibility(

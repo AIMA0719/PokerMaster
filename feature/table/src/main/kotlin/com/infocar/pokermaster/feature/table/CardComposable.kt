@@ -52,6 +52,13 @@ import com.infocar.pokermaster.feature.table.a11y.A11yStrings
 val LocalHighContrastCards = staticCompositionLocalOf { false }
 
 /**
+ * 모션 최소화 — A11ySettings.reduceMotion 가 true 일 때 사용자 인지 부담을 줄이기 위해
+ * 큰 애니메이션(딜링 prep delay, 카드 슬라이드, deal stagger 등) 을 단축/생략한다.
+ * 화면 진입 후 최소 대기는 유지하되, 시각적 motion 만 감소.
+ */
+val LocalReduceMotion = staticCompositionLocalOf { false }
+
+/**
  * 플레잉 카드 컴포넌트. v1.1 §4.3 — 저작권 회피를 위해 자체 일러스트 없이
  * Compose 그래픽 (Text + Canvas) 만으로 카드를 그린다.
  *
