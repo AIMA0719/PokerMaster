@@ -38,8 +38,10 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -48,6 +50,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.infocar.pokermaster.core.ui.theme.HangameColors
 import com.infocar.pokermaster.core.ui.theme.ThemeMode
 import com.infocar.pokermaster.feature.table.a11y.ColorblindMode
+import kotlinx.coroutines.launch
 
 /**
  * 설정 화면 — M6-A (§1.2.H 축약판).
@@ -60,6 +63,10 @@ import com.infocar.pokermaster.feature.table.a11y.ColorblindMode
 fun SettingsScreen(
     onBack: () -> Unit,
     versionName: String = "dev",
+    /** AI 모델 검증 콜백. null 이면 "AI 모델" 섹션 노출 안 함 (테스트/Preview). */
+    onVerifyModel: (suspend () -> String)? = null,
+    /** AI 모델 삭제 콜백. true=삭제 성공. */
+    onDeleteModel: (suspend () -> Boolean)? = null,
     viewModel: SettingsViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsState()
@@ -205,6 +212,47 @@ fun SettingsScreen(
                         modifier = Modifier.fillMaxWidth(),
                     ) {
                         Text("핸드 히스토리 전체 삭제")
+                    }
+                }
+
+                if (onVerifyModel != null || onDeleteModel != null) {
+                    val mScope = rememberCoroutineScope()
+                    val mCtx = LocalContext.current
+                    SectionCard("AI 모델") {
+                        Text(
+                            "다운로드된 LLM 모델 파일의 무결성을 확인하거나 강제 삭제(다음 진입 시 재다운로드).",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = HangameColors.TextSecondary,
+                        )
+                        if (onVerifyModel != null) {
+                            OutlinedButton(
+                                onClick = {
+                                    mScope.launch {
+                                        val msg = onVerifyModel()
+                                        android.widget.Toast.makeText(
+                                            mCtx, msg, android.widget.Toast.LENGTH_LONG,
+                                        ).show()
+                                    }
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                            ) { Text("모델 파일 검증") }
+                        }
+                        if (onDeleteModel != null) {
+                            OutlinedButton(
+                                onClick = {
+                                    mScope.launch {
+                                        val ok = onDeleteModel()
+                                        android.widget.Toast.makeText(
+                                            mCtx,
+                                            if (ok) "모델 파일을 삭제했습니다. 다음 진입 시 재다운로드됩니다."
+                                            else "삭제 실패 또는 파일이 없습니다.",
+                                            android.widget.Toast.LENGTH_LONG,
+                                        ).show()
+                                    }
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                            ) { Text("모델 파일 삭제") }
+                        }
                     }
                 }
 

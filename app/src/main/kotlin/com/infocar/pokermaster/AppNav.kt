@@ -31,9 +31,13 @@ import com.infocar.pokermaster.feature.onboarding.OnboardingPrefs
 import com.infocar.pokermaster.feature.onboarding.OnboardingScreen
 import com.infocar.pokermaster.feature.table.TableScreen
 import com.infocar.pokermaster.feature.table.settings.SettingsScreen
+import com.infocar.pokermaster.model.DefaultModels
 import com.infocar.pokermaster.model.ModelGateScreen
+import com.infocar.pokermaster.model.ModelStore
 import dagger.hilt.android.EntryPointAccessors
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 
 private object Routes {
     const val SPLASH = "splash"
@@ -107,9 +111,33 @@ fun AppNav() {
             )
         }
         composable(Routes.SETTINGS) {
+            val appCtx = LocalContext.current.applicationContext
             SettingsScreen(
                 onBack = { nav.popBackStack() },
                 versionName = BuildConfig.VERSION_NAME,
+                onVerifyModel = {
+                    withContext(Dispatchers.IO) {
+                        val store = ModelStore(appCtx)
+                        val entry = DefaultModels.default
+                        when (val r = store.verify(entry)) {
+                            ModelStore.VerifyResult.Valid -> "✓ 모델 검증 성공 (SHA-256 일치)"
+                            ModelStore.VerifyResult.Missing ->
+                                "✗ 모델 파일 없음 — 다음 진입 시 자동 다운로드됩니다."
+                            is ModelStore.VerifyResult.SizeMismatch ->
+                                "✗ 크기 불일치 (예상 ${r.expected}, 실제 ${r.actual})"
+                            is ModelStore.VerifyResult.HashMismatch ->
+                                "✗ 해시 불일치 — 손상된 파일입니다. 삭제 후 재다운로드 권장."
+                        }
+                    }
+                },
+                onDeleteModel = {
+                    withContext(Dispatchers.IO) {
+                        val store = ModelStore(appCtx)
+                        val entry = DefaultModels.default
+                        store.deletePart(entry)
+                        store.deleteInstalled(entry)
+                    }
+                },
             )
         }
         composable(Routes.STATS) {

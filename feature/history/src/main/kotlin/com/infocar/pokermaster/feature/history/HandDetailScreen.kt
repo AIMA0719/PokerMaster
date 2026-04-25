@@ -20,12 +20,17 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -95,6 +100,8 @@ fun HandDetailScreen(
             }
 
             val record = state.record!!
+            // step scrubber: 0 = 핸드 시작 직후 (액션 0건 진행), N = 모든 액션 진행 완료.
+            var currentStep by remember(record.id) { mutableIntStateOf(record.actions.size) }
             LazyColumn(
                 modifier = Modifier
                     .fillMaxSize()
@@ -104,7 +111,16 @@ fun HandDetailScreen(
             ) {
                 item { HeaderCard(record = record) }
                 item { CardsCard(record = record) }
-                item { ActionsCard(actions = record.actions) }
+                if (record.actions.isNotEmpty()) {
+                    item {
+                        ScrubberCard(
+                            totalSteps = record.actions.size,
+                            currentStep = currentStep,
+                            onStepChange = { currentStep = it },
+                        )
+                    }
+                }
+                item { ActionsCard(actions = record.actions, currentStep = currentStep) }
                 item { ProvablyFairCard(record = record, seedVerified = state.seedVerified) }
             }
         }
@@ -159,7 +175,7 @@ private fun CardsCard(record: HandHistoryRecord) {
 }
 
 @Composable
-private fun ActionsCard(actions: List<ActionLogEntry>) {
+private fun ActionsCard(actions: List<ActionLogEntry>, currentStep: Int = actions.size) {
     SectionCard(title = "액션 로그 (${actions.size})") {
         if (actions.isEmpty()) {
             Text(
@@ -169,7 +185,7 @@ private fun ActionsCard(actions: List<ActionLogEntry>) {
             )
             return@SectionCard
         }
-        actions.forEach { e ->
+        actions.forEachIndexed { idx, e ->
             val streetLabel = when (e.streetIndex) {
                 0 -> "pre"
                 1 -> "flop"
@@ -178,13 +194,48 @@ private fun ActionsCard(actions: List<ActionLogEntry>) {
                 else -> "s${e.streetIndex}"
             }
             val amount = if (e.action.amount > 0L) " ${e.action.amount}" else ""
+            // 도달한 액션은 진한색, 현재 액션은 lime 강조, 아직 미도달은 흐림.
+            val color = when {
+                idx + 1 == currentStep -> HangameColors.TextLime
+                idx < currentStep -> HangameColors.TextPrimary
+                else -> HangameColors.TextSecondary.copy(alpha = 0.4f)
+            }
+            val fontWeight = if (idx + 1 == currentStep) FontWeight.SemiBold else FontWeight.Normal
             Text(
                 "[$streetLabel] seat ${e.seat} → ${e.action.type}$amount",
                 style = MaterialTheme.typography.bodySmall,
                 fontFamily = FontFamily.Monospace,
-                color = HangameColors.TextSecondary,
+                color = color,
+                fontWeight = fontWeight,
             )
         }
+    }
+}
+
+@Composable
+private fun ScrubberCard(
+    totalSteps: Int,
+    currentStep: Int,
+    onStepChange: (Int) -> Unit,
+) {
+    SectionCard(title = "리플레이 스크러버 ($currentStep / $totalSteps)") {
+        Slider(
+            value = currentStep.toFloat(),
+            onValueChange = { onStepChange(it.toInt().coerceIn(0, totalSteps)) },
+            valueRange = 0f..totalSteps.toFloat(),
+            steps = (totalSteps - 1).coerceAtLeast(0),
+            colors = SliderDefaults.colors(
+                thumbColor = HangameColors.TextLime,
+                activeTrackColor = HangameColors.TextLime,
+                inactiveTrackColor = HangameColors.SeatBorder,
+            ),
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Text(
+            "슬라이더로 액션 시점을 이동하면 해당 시점까지의 로그가 강조됩니다.",
+            style = MaterialTheme.typography.bodySmall,
+            color = HangameColors.TextSecondary,
+        )
     }
 }
 
