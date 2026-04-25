@@ -72,6 +72,20 @@ class TableViewModel private constructor(
     val resumePrompt: StateFlow<ResumePrompt?> = _resumePrompt.asStateFlow()
 
     private var tickJob: Job? = null
+    private var autoNextJob: Job? = null
+
+    /** 게임 오버 상태: 승자 닉네임 + 최종 칩. null 이면 게임 진행 중. */
+    private val _gameOver = MutableStateFlow<GameOverInfo?>(null)
+    val gameOver: StateFlow<GameOverInfo?> = _gameOver.asStateFlow()
+
+    /** 쇼다운 후 자동 다음 핸드 카운트다운 (초). null 이면 카운트다운 없음. */
+    private val _autoNextCountdown = MutableStateFlow<Int?>(null)
+    val autoNextCountdown: StateFlow<Int?> = _autoNextCountdown.asStateFlow()
+
+    /** 좌석별 마지막 액션 라벨 — 2초 후 자동 소멸. */
+    private val _lastActions = MutableStateFlow<Map<Int, String>>(emptyMap())
+    val lastActions: StateFlow<Map<Int, String>> = _lastActions.asStateFlow()
+    private var clearActionJob: Job? = null
 
     // M5-B: 핸드 히스토리 수집 버퍼. handIndex 가 바뀔 때마다 리셋.
     private var currentHandIndex: Long = controller.state.handIndex
@@ -82,18 +96,33 @@ class TableViewModel private constructor(
     // M6-C: 마지막 settle 중복 방지 플래그.
     private var settled: Boolean = false
 
+    /** 쇼다운 후 자동 다음 핸드까지 대기 시간(초). 사용자 룰: "한 판 끝나고 다음 판까지 3초". */
+    private val autoNextDelaySeconds = 3
+
+    /**
+     * 테이블 진입 직후 NPC tick 시작 전 휴식(ms).
+     * 사용자 룰: "홀덤 누르면 3초 대기하고 시작" + 카드 딜링 애니(약 1.5~2s) 마무리까지 여유.
+     */
+    private val initialRestMs = 4_500L
+
     init {
         val snap = resumeRepo?.load()
         if (snap != null && snap.state.mode == config.mode) {
-            // 복원 제안만 노출 — 사용자 결정 전까지 NPC tick 시작하지 않음.
             _resumePrompt.value = snap.toPrompt()
         } else {
-            // 새 핸드부터 바로 진행.
-            startTicking()
+            // 진입 직후 2초 휴식 — 카드 딜링 애니 + 사용자 화면 적응 시간. 별도 카운트다운
+            // 없이 NPC tick 만 지연.
+            viewModelScope.launch {
+                delay(initialRestMs)
+                startTicking()
+            }
         }
-        // M6-C: 테이블 세션 시작 시 wallet 에서 buy-in 차감 (LobbyVM 이 잔고 검증 후 진입).
+        // 테이블 세션 시작 시 wallet 에서 본인 buy-in 만큼 차감 (사용자 룰: 본인 chips=wallet 전체).
         walletRepo?.let { repo ->
-            viewModelScope.launch { repo.buyIn(WalletRepository.TABLE_STAKE) }
+            val humanStartChips = initialPlayers.firstOrNull { it.isHuman }?.chips ?: 0L
+            if (humanStartChips > 0L) {
+                viewModelScope.launch { repo.buyIn(humanStartChips) }
+            }
         }
     }
 
@@ -107,9 +136,30 @@ class TableViewModel private constructor(
         val repo = walletRepo ?: return
         val scope = historyScope ?: return
         val finalChips = _state.value.players.firstOrNull { it.isHuman }?.chips ?: 0L
+        android.util.Log.i("TableVM", "settleAndClose async: finalChips=$finalChips")
         scope.launch(kotlinx.coroutines.NonCancellable) {
             runCatching { repo.settle(finalChips) }
+                .onSuccess { android.util.Log.i("TableVM", "settle async done: $finalChips") }
+                .onFailure { android.util.Log.w("TableVM", "settle async failed", it) }
         }
+    }
+
+    /**
+     * settle 동기 await — 호출자가 wallet 잔고 갱신을 보장받은 후 다음 액션(예: 로비 nav).
+     * settled flag 로 중복 settle 방지 (이후 onCleared 호출되어도 noop).
+     */
+    suspend fun settleAndCloseAwait() {
+        if (settled) return
+        settled = true
+        val repo = walletRepo ?: return
+        val finalChips = _state.value.players.firstOrNull { it.isHuman }?.chips ?: 0L
+        android.util.Log.i("TableVM", "settleAndCloseAwait: finalChips=$finalChips")
+        runCatching {
+            kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
+                repo.settle(finalChips)
+            }
+        }.onSuccess { android.util.Log.i("TableVM", "settle await done: $finalChips") }
+            .onFailure { android.util.Log.w("TableVM", "settle await failed", it) }
     }
 
     override fun onCleared() {
@@ -121,12 +171,28 @@ class TableViewModel private constructor(
     // ---------------------------------------------------------------- Actions
 
     fun onHumanAction(action: Action) {
+        android.util.Log.i(
+            "TableVM",
+            "onHumanAction(${action.type} amount=${action.amount}) toAct=${_state.value.toActSeat} street=${_state.value.street}",
+        )
         val s = _state.value
-        val seat = s.toActSeat ?: return
-        val p = s.players.firstOrNull { it.seat == seat } ?: return
-        if (!p.isHuman) return
+        val seat = s.toActSeat
+        if (seat == null) {
+            android.util.Log.w("TableVM", "onHumanAction dropped: toActSeat=null")
+            return
+        }
+        val p = s.players.firstOrNull { it.seat == seat }
+        if (p == null) {
+            android.util.Log.w("TableVM", "onHumanAction dropped: no player at seat=$seat")
+            return
+        }
+        if (!p.isHuman) {
+            android.util.Log.w("TableVM", "onHumanAction dropped: seat=$seat is NPC (isHuman=false)")
+            return
+        }
         val streetBefore = s.street
         val next = controller.humanAct(action)
+        showLastAction(seat, action)
         // M5-B: human 액션 로그 + 핸드 종료 감지.
         logAction(seat = seat, action = action, streetOrdinal = streetBefore.ordinal)
         _state.value = next
@@ -136,12 +202,17 @@ class TableViewModel private constructor(
     }
 
     fun onNextHand() {
+        cancelAutoNext()
+        _lastActions.value = emptyMap()
         val s = _state.value
         if (s.pendingShowdown != null) {
             controller.ackShowdown()
         }
         val active = controller.state.players.count { it.chips > 0 }
-        if (active >= 2) {
+        // 본인이 파산(chips=0) 했으면 NPC 끼리 계속 가는 건 의미 없음 — 즉시 게임 오버.
+        val human = controller.state.players.firstOrNull { it.isHuman }
+        val humanBust = human != null && human.chips == 0L
+        if (active >= 2 && !humanBust) {
             _state.value = controller.nextHand()
             // M5-B: 다음 핸드 초기 상태/seed 새로 캡처 + 액션 로그 초기화.
             resetHistoryBufferFor(controller.state)
@@ -149,7 +220,14 @@ class TableViewModel private constructor(
             startTicking()
         } else {
             _state.value = controller.state
-            // 파산 리셋은 v1.1 §1.2.L — M3 범위 외.
+            // 게임 오버: 승자 정보 설정.
+            val winner = controller.state.players.maxByOrNull { it.chips }
+            _gameOver.value = GameOverInfo(
+                winnerNickname = winner?.nickname ?: "-",
+                winnerSeat = winner?.seat ?: -1,
+                isHumanWinner = winner?.isHuman == true,
+                finalChips = winner?.chips ?: 0L,
+            )
         }
     }
 
@@ -203,6 +281,47 @@ class TableViewModel private constructor(
         startTicking()
     }
 
+    // ---------------------------------------------------------------- Action Labels
+
+    private fun showLastAction(seat: Int, action: Action) {
+        val label = when (action.type) {
+            ActionType.FOLD -> "폴드"
+            ActionType.CHECK -> "체크"
+            ActionType.CALL -> "콜"
+            ActionType.BET -> "벳 ${ChipFormat.format(action.amount)}"
+            ActionType.RAISE -> "레이즈 ${ChipFormat.format(action.amount)}"
+            ActionType.ALL_IN -> "올인"
+            else -> action.type.name
+        }
+        _lastActions.value = _lastActions.value + (seat to label)
+        clearActionJob?.cancel()
+        clearActionJob = viewModelScope.launch {
+            delay(2000L)
+            _lastActions.value = emptyMap()
+        }
+    }
+
+    // ---------------------------------------------------------------- Auto-Next
+
+    /** 쇼다운 후 자동 다음 핸드 카운트다운 시작. */
+    private fun startAutoNextCountdown() {
+        cancelAutoNext()
+        autoNextJob = viewModelScope.launch {
+            for (remaining in autoNextDelaySeconds downTo 1) {
+                _autoNextCountdown.value = remaining
+                delay(1000L)
+            }
+            _autoNextCountdown.value = null
+            onNextHand()
+        }
+    }
+
+    private fun cancelAutoNext() {
+        autoNextJob?.cancel()
+        autoNextJob = null
+        _autoNextCountdown.value = null
+    }
+
     // ---------------------------------------------------------------- Internal
 
     private fun startTicking() {
@@ -242,6 +361,7 @@ class TableViewModel private constructor(
                     android.util.Log.w("TableVM", "npcActAndLog returned null — tick skipped")
                     return@launch
                 }
+                showLastAction(result.actorSeat, result.action)
                 logAction(seat = result.actorSeat, action = result.action, streetOrdinal = result.streetBefore.ordinal)
                 _state.value = result.state
                 maybeRecordFinishedHand(result.state)
@@ -267,14 +387,18 @@ class TableViewModel private constructor(
         currentHandActions = mutableListOf()
     }
 
-    /** 쇼다운 pending 이 막 생겼으면 히스토리 저장. 이미 저장했으면 중복 방지. */
+    /** 쇼다운 pending 이 막 생겼으면 히스토리 저장 + 자동 다음 핸드 카운트다운 시작. */
     private var lastRecordedHandIndex: Long = -1L
     private fun maybeRecordFinishedHand(state: GameState) {
         if (state.pendingShowdown == null) return
         if (state.handIndex == lastRecordedHandIndex) return
+        lastRecordedHandIndex = state.handIndex
+
+        // 자동 다음 핸드 카운트다운 시작.
+        startAutoNextCountdown()
+
         val repo = historyRepo ?: return
         val scope = historyScope ?: return
-        lastRecordedHandIndex = state.handIndex
 
         val rng = controller.rng
         val record = HandHistoryRecord(
@@ -333,12 +457,17 @@ class TableViewModel private constructor(
          * M3 MVP 기본 세팅: 2인 헤즈업 홀덤 (SB 25 / BB 50, 10k chips).
          * Context 를 받으면 ResumeRepository 가 활성화됨. null 이면 비활성.
          */
+        /** AI 시트 buy-in (사용자 룰: 5만 고정). */
+        const val NPC_BUY_IN: Long = 50_000L
+
         fun createDefault(
             context: Context?,
             mode: GameMode = GameMode.HOLDEM_NL,
+            /** 좌석 수 (인간 1 + AI N-1). 2~4 지원. */
+            seats: Int = 2,
             humanNickname: String = "나",
-            npcPersonaId: String = "PRO",
-            startingChips: Long = WalletRepository.TABLE_STAKE,
+            /** 본인 buy-in (=wallet 잔고 전체). 0 이면 default(TABLE_STAKE) 폴백 (테스트/프리뷰). */
+            humanBuyIn: Long = 0L,
             /** Phase5-II-B: LLM advisor. */
             llmAdvisor: LlmAdvisor? = null,
             /** M5-B: 핸드 히스토리 저장소 + scope. */
@@ -347,24 +476,59 @@ class TableViewModel private constructor(
             /** M6-C: 지갑. null 이면 buy-in/settle 스킵 (테스트/프리뷰 호환). */
             walletRepo: WalletRepository? = null,
         ): TableViewModel {
-            // M7-BugFix: 지원 외 모드가 외부 딥링크/nav arg 등으로 들어와도 crash 대신
-            // HOLDEM_NL 로 graceful degrade (로비에서 UX 차단도 별도 적용).
-            val effectiveMode = if (mode == GameMode.HOLDEM_NL) mode else {
-                android.util.Log.w("TableVM", "unsupported mode=$mode, falling back to HOLDEM_NL")
-                GameMode.HOLDEM_NL
+            // 모든 정식 지원 모드: HOLDEM_NL / SEVEN_STUD / SEVEN_STUD_HI_LO.
+            val effectiveMode = mode
+            val effectiveSeats = seats.coerceIn(2, 4)
+            // 7스터드/HiLo 디폴트 베팅 구조: ante 10 / bring-in 25 (NL 베팅, raise cap 3).
+            val config = when (effectiveMode) {
+                GameMode.SEVEN_STUD, GameMode.SEVEN_STUD_HI_LO -> TableConfig(
+                    mode = effectiveMode,
+                    seats = effectiveSeats,
+                    smallBlind = 0L,
+                    bigBlind = 0L,
+                    ante = 10L,
+                    bringIn = 25L,
+                )
+                GameMode.HOLDEM_NL -> TableConfig(mode = effectiveMode, seats = effectiveSeats)
             }
-            val config = TableConfig(mode = effectiveMode, seats = 2)
-            val players = listOf(
-                PlayerState(
-                    seat = 0, nickname = humanNickname, isHuman = true,
-                    personaId = null, chips = startingChips,
-                ),
-                PlayerState(
-                    seat = 1, nickname = "프로", isHuman = false,
-                    personaId = npcPersonaId, chips = startingChips,
-                ),
-            )
-            val repo = context?.let { ResumeRepository(it) }
+
+            // NPC 페르소나 분배 — engine/decision 의 PersonaPool 사용. PRO 가 첫 슬롯,
+            // 나머지는 seed=0 결정적 셔플로 다양화. seat=1 위치는 항상 동일 인물 (사용자 학습용).
+            val npcCount = effectiveSeats - 1
+            val npcPersonas = if (npcCount > 0) {
+                com.infocar.pokermaster.engine.decision.PersonaPool.pickFor(npcCount = npcCount, seed = 0L)
+            } else emptyList()
+            val npcPersonaIds = npcPersonas.map { it.name }
+            val npcNicknames = npcPersonas.map { it.displayName }
+
+            // Buy-in 분기 (사용자 룰):
+            //  - 인간: humanBuyIn (wallet 잔고 전체). 0 이면 default(TABLE_STAKE).
+            //  - NPC: 5만 고정.
+            val effectiveHumanChips =
+                if (humanBuyIn > 0L) humanBuyIn else WalletRepository.TABLE_STAKE
+            val players = buildList {
+                add(
+                    PlayerState(
+                        seat = 0, nickname = humanNickname, isHuman = true,
+                        personaId = null, chips = effectiveHumanChips,
+                    )
+                )
+                for (i in 0 until npcCount) {
+                    add(
+                        PlayerState(
+                            seat = i + 1,
+                            nickname = npcNicknames.getOrElse(i) { "AI${i + 1}" },
+                            isHuman = false,
+                            personaId = npcPersonaIds.getOrElse(i) { "PRO" },
+                            chips = NPC_BUY_IN,
+                        )
+                    )
+                }
+            }
+            // 이어하기 기능 제거 (사용자 요청). resumeRepo=null 이면 init {} 에서
+            // resumeRepo?.load() 가 null 이라 즉시 startTicking() 으로 진입, persistSnapshot()
+            // 도 노op. ResumePrompt UI 도 항상 null 이라 ResumeDialog 안 뜸.
+            val repo: ResumeRepository? = null
             return TableViewModel(
                 config = config,
                 initialPlayers = players,
@@ -375,6 +539,7 @@ class TableViewModel private constructor(
                 walletRepo = walletRepo,
             )
         }
+
     }
 }
 

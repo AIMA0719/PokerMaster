@@ -26,6 +26,8 @@ class AiDriver(
 ) {
 
     fun act(state: GameState, seat: Int, persona: Persona?): Action {
+        // 7스터드 3rd street monster (rolled-up) 안전장치. equity 노이즈로 약하게 평가될 수 있는 패턴.
+        StudOpener.overrideOnThirdStreet(state, seat)?.let { return it }
         val ctx = buildContext(state, seat)
         val result = decisionCore.decide(ctx, persona)
         val top = result.candidates.firstOrNull() ?: return Action(ActionType.FOLD)
@@ -52,6 +54,8 @@ class AiDriver(
         advisor: LlmAdvisor?,
         timeoutMs: Long = DEFAULT_LLM_TIMEOUT_MS,
     ): Action {
+        // 7스터드 3rd street monster 우선 처리 — LLM 컨설트 비용/지연 회피.
+        StudOpener.overrideOnThirdStreet(state, seat)?.let { return it }
         val ctx = buildContext(state, seat)
         val result = decisionCore.decide(ctx, persona)
 

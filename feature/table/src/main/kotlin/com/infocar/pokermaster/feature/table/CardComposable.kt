@@ -63,6 +63,8 @@ fun PlayingCard(
     faceDown: Boolean = false,
     modifier: Modifier = Modifier,
     highlight: Boolean = false,
+    width: Dp = 44.dp,
+    height: Dp = 64.dp,
 ) {
     val gold = Color(0xFFD4AF37)
     // M7-C: Light 모드에서는 포커 그린, Dark 모드에서는 네이비/틸.
@@ -77,10 +79,9 @@ fun PlayingCard(
         else -> A11yStrings.card(card)
     }
 
-    // default size 를 먼저 선언한 뒤 호출자 modifier 로 override 가능하도록 체이닝.
-    val baseModifier = Modifier
-        .size(width = 44.dp, height = 64.dp)
-        .then(modifier)
+    // size 는 파라미터로 받아 caller 가 정확히 제어. modifier 는 chaining 위치에 무관하게 동작.
+    val baseModifier = modifier
+        .size(width = width, height = height)
         .then(if (highlight) Modifier.scale(1.05f) else Modifier)
         .semantics { contentDescription = semanticsLabel }
 
@@ -105,6 +106,7 @@ fun PlayingCard(
             cornerRadius = cornerRadius,
             highlight = highlight,
             gold = gold,
+            width = width,
         )
     }
 }
@@ -116,11 +118,16 @@ private fun CardFace(
     cornerRadius: Dp,
     highlight: Boolean,
     gold: Color,
+    width: Dp,
 ) {
     val suitColor = when (card.suit) {
         Suit.HEART, Suit.DIAMOND -> Color(0xFFC8372D)
         Suit.SPADE, Suit.CLUB -> Color.Black
     }
+    // 폰트 사이즈 비례 — 44dp 기준 16sp/10sp 가 미니카드(22dp) 에선 8sp/5sp 로 축소.
+    val rankSp = (width.value * 0.36f).coerceAtLeast(8f)
+    val suitSp = (width.value * 0.22f).coerceAtLeast(5f)
+    val centerSp = (width.value * 0.6f).coerceAtLeast(12f)
     val surface = MaterialTheme.colorScheme.surface
     val borderModifier = if (highlight) {
         Modifier.border(BorderStroke(2.dp, gold), RoundedCornerShape(cornerRadius))
@@ -136,7 +143,7 @@ private fun CardFace(
             .clip(RoundedCornerShape(cornerRadius))
             .background(surface)
             .then(borderModifier)
-            .padding(horizontal = 3.dp, vertical = 2.dp),
+            .padding(horizontal = 2.dp, vertical = 1.dp),
     ) {
         // 좌상단 코너
         Column(
@@ -147,15 +154,15 @@ private fun CardFace(
             Text(
                 text = card.rank.short,
                 color = suitColor,
-                fontSize = 16.sp,
+                fontSize = rankSp.sp,
                 fontWeight = FontWeight.Bold,
-                lineHeight = 16.sp,
+                lineHeight = rankSp.sp,
             )
             Text(
                 text = card.suit.symbol,
                 color = suitColor,
-                fontSize = 10.sp,
-                lineHeight = 10.sp,
+                fontSize = suitSp.sp,
+                lineHeight = suitSp.sp,
             )
         }
 
@@ -169,15 +176,15 @@ private fun CardFace(
                 Text(
                     text = card.rank.short,
                     color = suitColor,
-                    fontSize = 16.sp,
+                    fontSize = rankSp.sp,
                     fontWeight = FontWeight.Bold,
-                    lineHeight = 16.sp,
+                    lineHeight = rankSp.sp,
                 )
                 Text(
                     text = card.suit.symbol,
                     color = suitColor,
-                    fontSize = 10.sp,
-                    lineHeight = 10.sp,
+                    fontSize = suitSp.sp,
+                    lineHeight = suitSp.sp,
                 )
             }
         }
@@ -186,7 +193,7 @@ private fun CardFace(
         Text(
             text = card.suit.symbol,
             color = suitColor.copy(alpha = 0.18f),
-            fontSize = 26.sp,
+            fontSize = centerSp.sp,
             fontWeight = FontWeight.Bold,
             modifier = Modifier.align(Alignment.Center),
         )

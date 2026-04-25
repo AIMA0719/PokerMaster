@@ -40,13 +40,13 @@ fun CardCommunityRow(
 ) {
     Row(
         modifier = modifier,
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        horizontalArrangement = Arrangement.spacedBy(3.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         for (i in 0 until 5) {
             val card = community.getOrNull(i)
             if (card == null) {
-                PlayingCard(card = null, faceDown = false)
+                PlayingCard(card = null, faceDown = false, width = 32.dp, height = 46.dp)
             } else {
                 val duration = when {
                     i < 3 -> DealAnimationSpec.FLOP_CARD_DURATION_MS
@@ -69,7 +69,7 @@ fun CardCommunityRow(
                     enter = slideInHorizontally(animationSpec = slideSpec) { w -> w / 2 } +
                         fadeIn(animationSpec = fadeSpec),
                 ) {
-                    PlayingCard(card = card, faceDown = false)
+                    PlayingCard(card = card, faceDown = false, width = 32.dp, height = 46.dp)
                 }
             }
         }

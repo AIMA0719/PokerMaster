@@ -40,12 +40,12 @@ private object Routes {
     const val MODEL_GATE = "modelGate"
     const val ONBOARDING = "onboarding"
     const val LOBBY = "lobby"
-    const val TABLE = "table/{mode}"
+    const val TABLE = "table/{mode}/{seats}/{buyIn}"
     const val HISTORY = "history"
     const val HISTORY_DETAIL = "history/{id}"
     const val SETTINGS = "settings"
     const val STATS = "stats"
-    fun table(mode: GameMode) = "table/${mode.name}"
+    fun table(mode: GameMode, seats: Int, buyIn: Long) = "table/${mode.name}/$seats/$buyIn"
     fun historyDetail(id: Long) = "history/$id"
 }
 
@@ -60,7 +60,9 @@ fun AppNav() {
     NavHost(
         navController = nav,
         startDestination = Routes.SPLASH,
-        modifier = Modifier.fillMaxSize().safeDrawingPadding(),
+        // safeDrawingPadding 제거 — status/navigation bar 영역까지 컨텐츠가 풀 그라데이션 배경으로
+        // 차지. 각 화면에서 Scaffold 의 inner padding 또는 statusBarsPadding 으로 안전 영역 처리.
+        modifier = Modifier.fillMaxSize(),
     ) {
         composable(Routes.SPLASH) {
             SplashScreen(onReady = {
@@ -92,11 +94,9 @@ fun AppNav() {
         }
         composable(Routes.LOBBY) {
             LobbyScreen(
-                onSelectMode = { mode ->
-                    // M3 MVP: HOLDEM_NL 만 지원 — 다른 모드는 로비에서 lock 예정
-                    if (mode == GameMode.HOLDEM_NL) {
-                        nav.navigate(Routes.table(mode))
-                    }
+                onSelectMode = { mode, seats, buyIn ->
+                    // 모든 정식 모드 지원 — HOLDEM_NL / SEVEN_STUD / SEVEN_STUD_HI_LO.
+                    nav.navigate(Routes.table(mode, seats, buyIn))
                 },
                 // M5-C: 히스토리 진입점.
                 onOpenHistory = { nav.navigate(Routes.HISTORY) },
@@ -129,19 +129,24 @@ fun AppNav() {
         }
         composable(
             route = Routes.TABLE,
-            arguments = listOf(navArgument("mode") { type = NavType.StringType }),
+            arguments = listOf(
+                navArgument("mode") { type = NavType.StringType },
+                navArgument("seats") { type = NavType.IntType },
+                navArgument("buyIn") { type = NavType.LongType },
+            ),
         ) { entry ->
             val modeName = entry.arguments?.getString("mode") ?: GameMode.HOLDEM_NL.name
             val mode = runCatching { GameMode.valueOf(modeName) }.getOrDefault(GameMode.HOLDEM_NL)
-            // Phase5-II-B / M5-B: Hilt EntryPoint 로 LlmAdvisor + HandHistoryRepository +
-            // AppScope CoroutineScope 를 꺼내 TableScreen 에 주입. 엔진 미지원 단말에서도
-            // advisor 는 non-null 이지만 suggest() 가 null 폴백 → DecisionCore 경로.
+            val seats = (entry.arguments?.getInt("seats") ?: 2).coerceIn(2, 4)
+            val buyIn = entry.arguments?.getLong("buyIn") ?: 0L
             val appCtx = LocalContext.current.applicationContext
             val entry = remember(appCtx) {
                 EntryPointAccessors.fromApplication(appCtx, LlmAdvisorEntryPoint::class.java)
             }
             TableScreen(
                 mode = mode,
+                seats = seats,
+                humanBuyIn = buyIn,
                 onExit = {
                     nav.navigate(Routes.LOBBY) {
                         popUpTo(Routes.LOBBY) { inclusive = true }
@@ -173,13 +178,23 @@ private fun SplashScreen(onReady: () -> Unit) {
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background),
+            .background(com.infocar.pokermaster.core.ui.theme.HangameColors.BackgroundBrush),
         contentAlignment = Alignment.Center,
     ) {
-        Text(
-            text = stringResource(id = R.string.splash_title),
-            style = MaterialTheme.typography.displayLarge,
-            color = MaterialTheme.colorScheme.onBackground,
-        )
+        androidx.compose.foundation.layout.Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Text(
+                text = "♠♥♦♣",
+                style = MaterialTheme.typography.displayMedium,
+                color = com.infocar.pokermaster.core.ui.theme.HangameColors.TextSecondary,
+            )
+            Text(
+                text = stringResource(id = R.string.splash_title),
+                style = MaterialTheme.typography.displayLarge,
+                color = com.infocar.pokermaster.core.ui.theme.HangameColors.TextPrimary,
+                fontWeight = androidx.compose.ui.text.font.FontWeight.Black,
+            )
+        }
     }
 }

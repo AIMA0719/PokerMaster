@@ -11,29 +11,40 @@ import com.infocar.pokermaster.core.model.ShowdownHandInfo
 import com.infocar.pokermaster.core.model.ShowdownSummary
 import com.infocar.pokermaster.core.model.Street
 import com.infocar.pokermaster.core.model.TableConfig
-import com.infocar.pokermaster.engine.rules.HandEvaluatorHoldem
+import com.infocar.pokermaster.engine.rules.HandEvaluator7Stud
+import com.infocar.pokermaster.engine.rules.HandEvaluatorHiLo
 import com.infocar.pokermaster.engine.rules.HandValue
+import com.infocar.pokermaster.engine.rules.LowValue
 import com.infocar.pokermaster.engine.rules.PlayerCommitment
 import com.infocar.pokermaster.engine.rules.Rng
 import com.infocar.pokermaster.engine.rules.ShowdownResolver
 import com.infocar.pokermaster.engine.rules.SidePotCalculator
 
 /**
- * 텍사스 홀덤 NL 상태 머신 — 순수 함수 (no coroutines / no IO).
+ * 한국식 7카드 스터드 (high-only) 상태 머신 — 순수 함수 (no coroutines / no IO).
  *
  * 흐름:
- *  - [startHand]: 블라인드, 홀카드 분배, toAct 결정
- *  - [act]: 단일 액션 검증+적용. 라운드 종료 시 자동 스트릿 advance, 끝나면 자동 쇼다운.
- *  - [ackShowdown]: 쇼다운 애니 후 UI 확인 → pending 해제 (다음 [startHand] 를 Controller 가 호출).
+ *  - [startHand]: 앤티 → 3rd street(2D+1U) 분배 → 브링인(약한 up-card 좌석) 강제 베팅 → 다음 액션 좌석 설정
+ *  - [act]: 단일 액션 검증+적용. 라운드 종료 시 자동 4~7th 진행, 7th 후 자동 쇼다운.
+ *  - [ackShowdown]: 쇼다운 애니 후 UI 확인 → pending 해제.
  *
- * v1.1 §3.2 반영:
- *  - A. All-in less-than-min-raise → [GameState.reopenAction] = false (이후 라운드는 call/fold 만)
- *  - B. 헤즈업 SB=BTN 분기 (pre-flop first to act = BTN, post-flop first to act = BB)
- *  - BB option: 프리플롭 all-call 시 BB 에게 체크/레이즈 option (actedThisStreet 플래그로 처리)
+ * 베팅 구조 (첫 컷):
+ *  - NL 스타일 — applyBetOrRaise / applyCall 시맨틱은 HoldemReducer 와 동일.
+ *  - 4th double-bet on open pair, raise cap 3, fixed-limit 룰은 후속 카드.
+ *  - SAVE_LIFE (§3.3.C) 는 스펙 미확정 — 현재는 FOLD 로 다운그레이드.
+ *
+ * 카드 분배:
+ *  - 3rd: 모든 active 좌석에 2 down + 1 up
+ *  - 4/5/6th: 1 up
+ *  - 7th: 1 down
+ *
+ * 베스트 익스포즈드(first-to-act 4~7th) 동률 처리:
+ *  - HandEvaluator7Stud.evaluatePartial 결과 비교, 동률 시 최고 up-card rank → suit ordinal (♠ 최강) 우선.
  */
-object HoldemReducer {
+object StudReducer {
 
-    // ------------------------------------------------------- Hand lifecycle
+    /** 한국식 7스터드 raise cap — 스트릿당 최대 3회 raise (complete 포함). */
+    private const val STUD_RAISE_CAP_PER_STREET = 3
 
     fun startHand(
         config: TableConfig,
@@ -43,11 +54,15 @@ object HoldemReducer {
         handIndex: Long,
         startingVersion: Long,
     ): GameState {
-        require(config.mode == GameMode.HOLDEM_NL) { "HoldemReducer only handles HOLDEM_NL" }
+        require(config.mode == GameMode.SEVEN_STUD || config.mode == GameMode.SEVEN_STUD_HI_LO) {
+            "StudReducer only handles SEVEN_STUD / SEVEN_STUD_HI_LO"
+        }
         val seated = players.filter { it.chips > 0 }
         require(seated.size >= 2) { "need >=2 players with chips to start hand" }
+        val anteAmount = config.ante.coerceAtLeast(0L)
+        val bringInAmount = config.bringIn.coerceAtLeast(0L)
 
-        // 1) reset per-hand state
+        // 1) reset per-hand
         var current = players.map { p ->
             val canPlay = p.chips > 0
             p.copy(
@@ -61,34 +76,67 @@ object HoldemReducer {
             )
         }
 
-        // 2) BTN 이동
+        // 2) BTN — 스터드는 first-to-act 가 브링인/베스트익스포즈드로 결정되지만
+        //    odd-chip 분배 / 다음 핸드 BTN 회전 / deal order tie-breaker 용으로 유지.
         val newBtn = chooseBtnSeat(prevBtnSeat, current)
 
-        // 3) blinds
-        val (sbSeat, bbSeat) = blindSeats(newBtn, current)
-        current = postBlind(current, sbSeat, config.smallBlind)
-        current = postBlind(current, bbSeat, config.bigBlind)
-
-        // 4) hole card distribution — BTN+1 부터 시계방향 두 바퀴
-        val order = dealOrder(newBtn, current)
-        val holes = order.associateWith { mutableListOf<Card>() }
-        var cursor = 0
-        repeat(2) {
-            for (seat in order) {
-                holes[seat]!!.add(rng.deck[cursor++])
+        // 3) ante (모든 not-folded 좌석). committedThisHand 만 갱신, committedThisStreet 미반영(brick-in 만 콜 기준).
+        if (anteAmount > 0L) {
+            current = current.map { p ->
+                if (p.folded) p
+                else {
+                    val pay = anteAmount.coerceAtMost(p.chips)
+                    val isAllIn = pay > 0L && pay == p.chips
+                    p.copy(
+                        chips = p.chips - pay,
+                        committedThisHand = p.committedThisHand + pay,
+                        allIn = isAllIn || p.allIn,
+                    )
+                }
             }
         }
+
+        // 4) deal: 2 down + 1 up to each not-folded, in BTN+1 시계방향 순서
+        val order = dealOrder(newBtn, current)
+        val downs = order.associateWith { mutableListOf<Card>() }
+        val ups = order.associateWith { mutableListOf<Card>() }
+        var cursor = 0
+        repeat(2) {
+            for (seat in order) downs[seat]!!.add(rng.deck[cursor++])
+        }
+        for (seat in order) ups[seat]!!.add(rng.deck[cursor++])
+
         current = current.map { p ->
-            if (p.chips > 0 && !p.folded && holes.containsKey(p.seat)) {
-                p.copy(holeCards = holes[p.seat]!!.toList())
-            } else p
+            if (p.folded || !downs.containsKey(p.seat)) p
+            else p.copy(
+                holeCards = downs[p.seat]!!.toList(),
+                upCards = ups[p.seat]!!.toList(),
+            )
         }
 
-        // 5) first to act
-        val liveCount = current.count { !it.folded }
-        val firstToAct = if (liveCount == 2) newBtn else nextActiveSeatAfter(bbSeat, current)
+        // 5) bring-in 좌석: 가장 약한 up-card (rank asc; 동률 시 suit asc — ♣<♦<♥<♠).
+        val bringInSeat = pickBringInSeat(current)
 
-        val bb = config.bigBlind
+        // 6) bring-in 강제 베팅 — committedThisStreet 도 갱신 (3rd street 콜 기준).
+        if (bringInAmount > 0L) {
+            current = current.map { p ->
+                if (p.seat != bringInSeat) p
+                else {
+                    val pay = bringInAmount.coerceAtMost(p.chips)
+                    val isAllIn = pay > 0L && pay == p.chips
+                    p.copy(
+                        chips = p.chips - pay,
+                        committedThisHand = p.committedThisHand + pay,
+                        committedThisStreet = p.committedThisStreet + pay,
+                        allIn = isAllIn || p.allIn,
+                    )
+                }
+            }
+        }
+
+        // 7) first-to-act = bring-in 다음 active 좌석.
+        val firstToAct = nextActiveSeatAfter(bringInSeat, current)
+
         return GameState(
             mode = config.mode,
             config = config,
@@ -97,14 +145,15 @@ object HoldemReducer {
             players = current,
             btnSeat = newBtn,
             toActSeat = firstToAct,
-            street = Street.PREFLOP,
+            street = Street.THIRD,
             community = emptyList(),
-            betToCall = bb,
-            minRaise = bb * 2,
+            betToCall = bringInAmount,
+            minRaise = (bringInAmount * 2L).coerceAtLeast(1L),
             reopenAction = true,
-            lastFullRaiseAmount = bb,
-            lastAggressorSeat = bbSeat,
+            lastFullRaiseAmount = bringInAmount.coerceAtLeast(1L),
+            lastAggressorSeat = bringInSeat,
             deckCursor = cursor,
+            raisesThisStreet = 0,
             rngCommitHex = rng.commit.toHex(),
             pendingShowdown = null,
             paused = false,
@@ -123,17 +172,16 @@ object HoldemReducer {
             ActionType.FOLD -> applyFold(state, seat)
             ActionType.CHECK -> applyCheck(state, seat)
             ActionType.CALL -> applyCall(state, seat)
-            ActionType.BET, ActionType.RAISE -> applyBetOrRaise(state, seat, action)
+            ActionType.BET, ActionType.RAISE, ActionType.COMPLETE -> applyBetOrRaise(state, seat, action)
             ActionType.ALL_IN -> applyAllIn(state, seat)
-            else -> error("Action ${action.type} not supported in Holdem")
+            ActionType.BRING_IN -> applyCall(state, seat) // 강제 브링인 — 사용자 선택 X, 들어오면 콜로 강등
+            ActionType.SAVE_LIFE -> applySaveLife(state, seat) // §3.3.C 한국식 구사 (잠정 사양)
         }
 
-        // 라이브 1 명 → 즉시 핸드 종료
         if (s0.players.count { !it.folded } == 1) {
             return runShowdown(s0.copy(toActSeat = null))
         }
 
-        // 라운드 종료 검사
         if (isBettingRoundComplete(s0)) {
             return runoutOrShowdown(s0, rng)
         }
@@ -143,28 +191,23 @@ object HoldemReducer {
     }
 
     /**
-     * M7-BugFix: 전원 all-in 이어서 남은 스트릿도 자동 런아웃 해야 하는 경우 연쇄 전진.
-     *
-     *  - 기존: 한 스트릿만 `advanceToStreet` 후 종료. 새 스트릿에도 액터가 없으면
-     *    `toActSeat` 가 inactive seat 을 가리키게 되어 다음 `act()` 가
-     *    `require(player.active)` 트립 혹은 UI tick 루프 freeze.
-     *  - 수정: 다음 스트릿이 여전히 "모두 all-in" 이면 계속 전진, River 통과 시 쇼다운.
+     * 한 스트릿 종료 후, 다음 스트릿에서도 모두 all-in 상태로 즉시 라운드 완료라면 계속 전진.
+     * 7th 통과 후 쇼다운.
      */
     private fun runoutOrShowdown(s: GameState, rng: Rng): GameState {
         var cur = s
         while (true) {
             val next = when (cur.street) {
-                Street.PREFLOP -> Street.FLOP
-                Street.FLOP -> Street.TURN
-                Street.TURN -> Street.RIVER
-                Street.RIVER ->
+                Street.THIRD -> Street.FOURTH
+                Street.FOURTH -> Street.FIFTH
+                Street.FIFTH -> Street.SIXTH
+                Street.SIXTH -> Street.SEVENTH
+                Street.SEVENTH ->
                     return runShowdown(cur.copy(street = Street.SHOWDOWN, toActSeat = null))
                 else -> error("unexpected street ${cur.street}")
             }
             cur = advanceToStreet(cur, next, rng)
-            // 새 스트릿에서 누군가 액션 가능하면 그 seat 에 toAct 놔두고 종료.
             if (!isBettingRoundComplete(cur)) return cur
-            // 전원 all-in 상태로 라운드가 즉시 완료된 상태 — 다음 스트릿으로 계속.
         }
     }
 
@@ -177,7 +220,7 @@ object HoldemReducer {
         )
     }
 
-    // ------------------------------------------------------- Apply
+    // ------------------------------------------------------- Apply (Holdem 과 동일)
 
     private fun applyFold(state: GameState, seat: Int): GameState {
         val ps = state.players.map {
@@ -188,10 +231,7 @@ object HoldemReducer {
 
     private fun applyCheck(state: GameState, seat: Int): GameState {
         val me = state.players.first { it.seat == seat }
-        // M7-BugFix: 체크 불가(콜 필요) 상태에서 CHECK 오면 CALL 로 강등 — UI stale/race 방어.
-        if (me.committedThisStreet < state.betToCall) {
-            return applyCall(state, seat)
-        }
+        if (me.committedThisStreet < state.betToCall) return applyCall(state, seat)
         val ps = state.players.map {
             if (it.seat == seat) it.copy(actedThisStreet = true) else it
         }
@@ -201,7 +241,6 @@ object HoldemReducer {
     private fun applyCall(state: GameState, seat: Int): GameState {
         val me = state.players.first { it.seat == seat }
         val rawDelta = state.betToCall - me.committedThisStreet
-        // M7-BugFix: "nothing to call" → CHECK 로 강등.
         if (rawDelta <= 0) {
             val ps = state.players.map {
                 if (it.seat == seat) it.copy(actedThisStreet = true) else it
@@ -209,7 +248,6 @@ object HoldemReducer {
             return state.copy(players = ps, stateVersion = state.stateVersion + 1)
         }
         val delta = rawDelta.coerceAtMost(me.chips)
-        // me.chips==0 인 active seat 은 invariant 상 불가능이나 방어적으로 noop.
         if (delta <= 0) {
             val ps = state.players.map {
                 if (it.seat == seat) it.copy(actedThisStreet = true) else it
@@ -231,27 +269,26 @@ object HoldemReducer {
 
     private fun applyBetOrRaise(state: GameState, seat: Int, action: Action): GameState {
         val me = state.players.first { it.seat == seat }
-        // M7-BugFix: action 재오픈 불가, stack 소진, invalid target → CALL/CHECK 로 강등.
-        if (!state.reopenAction || me.chips == 0L || action.amount <= state.betToCall) {
+        // Raise cap 3 — 한국식 7스터드 정통: 스트릿당 최대 3회 raise (complete 포함).
+        // 초과 시 콜/체크로 강등.
+        val raiseCapHit = state.raisesThisStreet >= STUD_RAISE_CAP_PER_STREET
+        if (!state.reopenAction || me.chips == 0L || action.amount <= state.betToCall || raiseCapHit) {
             return if (state.betToCall > me.committedThisStreet) applyCall(state, seat)
             else applyCheck(state, seat)
         }
         val target = action.amount
         val delta = target - me.committedThisStreet
         if (delta !in 1..me.chips) {
-            // 범위 밖 → 가장 가까운 legal action 으로 강등.
             return if (state.betToCall > me.committedThisStreet) applyCall(state, seat)
             else applyCheck(state, seat)
         }
 
         val wouldBeAllIn = delta == me.chips
         val raiseIncrement = target - state.betToCall
-        val baselineRaise = maxOf(state.lastFullRaiseAmount, state.config.bigBlind)
+        val baselineRaise = maxOf(state.lastFullRaiseAmount, state.config.bringIn.coerceAtLeast(1L))
         val isFullRaise = raiseIncrement >= baselineRaise
 
         if (!isFullRaise && !wouldBeAllIn) {
-            // M7-BugFix: less-than-min-raise 인데 all-in 도 아닌 invalid 시도 → CALL 로 강등.
-            // (기존 require trip 대신 — UI/LLM 에서 잘못된 amount 를 보내도 크래시 방지.)
             return applyCall(state, seat)
         }
 
@@ -264,7 +301,6 @@ object HoldemReducer {
                     allIn = wouldBeAllIn,
                     actedThisStreet = true,
                 )
-                // full raise 시 다른 active 플레이어의 actedThisStreet 리셋 (재응답 요구)
                 isFullRaise && p.active && p.seat != seat -> p.copy(actedThisStreet = false)
                 else -> p
             }
@@ -273,18 +309,49 @@ object HoldemReducer {
         return state.copy(
             players = newPlayers,
             betToCall = target,
-            minRaise = target + maxOf(raiseIncrement, state.config.bigBlind),
+            minRaise = target + maxOf(raiseIncrement, baselineRaise),
             lastFullRaiseAmount = if (isFullRaise) raiseIncrement else state.lastFullRaiseAmount,
             reopenAction = isFullRaise,
             lastAggressorSeat = seat,
+            raisesThisStreet = if (isFullRaise) state.raisesThisStreet + 1 else state.raisesThisStreet,
             stateVersion = state.stateVersion + 1,
         )
     }
 
+    /**
+     * SAVE_LIFE (§3.3.C 한국식 "구사") — 잠정 사양.
+     *
+     * 동작:
+     *  - 콜할 베팅이 없으면(betToCall ≤ committedThisStreet) CHECK 로 강등.
+     *  - 그 외: 잔여 콜 비용의 절반(rounded down, 최소 1, 칩 한도 클램프) 만 팟에 commit 하고
+     *    플레이어를 [PlayerState.allIn] 으로 마킹. 더 이상 액션 불가, 그러나 폴드 아님 →
+     *    카드는 7th 까지 정상 분배되고 쇼다운에 동석. SidePotCalculator 가 자기 commit 한도까지의
+     *    레이어만 자격으로 처리하므로 상위 팟은 자연스럽게 분리.
+     *
+     * 의미: "콜은 부담스럽지만 죽기는 아까운" 상황에서 비용을 반으로 끊고 쇼다운까지 동석하는 한국식 구사.
+     *
+     * 정식 사양 미확정 — 사용자가 §3.3.C 텍스트 확정 시 본 함수만 수정.
+     */
+    private fun applySaveLife(state: GameState, seat: Int): GameState {
+        val me = state.players.first { it.seat == seat }
+        val rawCall = (state.betToCall - me.committedThisStreet).coerceAtLeast(0L)
+        if (rawCall <= 0L) return applyCheck(state, seat)
+        val halfCost = (rawCall / 2L).coerceAtLeast(1L).coerceAtMost(me.chips)
+        val ps = state.players.map {
+            if (it.seat == seat) it.copy(
+                chips = it.chips - halfCost,
+                committedThisHand = it.committedThisHand + halfCost,
+                committedThisStreet = it.committedThisStreet + halfCost,
+                allIn = true,
+                actedThisStreet = true,
+            ) else it
+        }
+        return state.copy(players = ps, stateVersion = state.stateVersion + 1)
+    }
+
     private fun applyAllIn(state: GameState, seat: Int): GameState {
         val me = state.players.first { it.seat == seat }
-        // M7-BugFix: chips==0 (이미 all-in) 상태에서 ALL_IN 재투입 → CHECK/CALL 로 강등.
-        if (me.chips <= 0) {
+        if (me.chips <= 0L) {
             return if (state.betToCall > me.committedThisStreet) applyCall(state, seat)
             else applyCheck(state, seat)
         }
@@ -296,50 +363,64 @@ object HoldemReducer {
         }
     }
 
-    // ------------------------------------------------------- Street advance
+    // ------------------------------------------------------- Round / street advance
 
     private fun isBettingRoundComplete(state: GameState): Boolean {
         val live = state.players.filter { !it.folded }
         if (live.size < 2) return true
         val actors = live.filter { !it.allIn }
-        if (actors.isEmpty()) return true   // 모두 all-in
-        // actor 1명 + 다른 모두 all-in → 추가 베팅 의미 없음 (raise 매치할 상대 X).
-        // betToCall 매치 완료면 자동 라운드 종료 → runoutOrShowdown 가 다음 스트릿 진행 → 결국 쇼다운.
-        // toCall>0 (actor 가 콜/폴드 결정 안 함) 이면 액션 대기 유지.
-        if (actors.size == 1) {
-            return actors[0].committedThisStreet == state.betToCall
-        }
+        if (actors.isEmpty()) return true
         return actors.all { it.actedThisStreet && it.committedThisStreet == state.betToCall }
     }
 
     private fun advanceToStreet(state: GameState, next: Street, rng: Rng): GameState {
-        val toAdd = when (next) {
-            Street.FLOP -> 3
-            Street.TURN -> 1
-            Street.RIVER -> 1
-            else -> 0
+        // 4~6th = up card 1장, 7th = down card 1장 (모든 not-folded — all-in 도 카드 받음)
+        val isUpDeal = next != Street.SEVENTH
+        val recipients = state.players.filter { !it.folded }.map { it.seat }.sorted()
+            .let { sorted ->
+                val i = sorted.indexOfFirst { it > state.btnSeat }
+                if (i == -1) sorted else sorted.drop(i) + sorted.take(i)
+            }
+        var cursor = state.deckCursor
+        val updates = HashMap<Int, Pair<List<Card>, List<Card>>>()
+        for (seat in recipients) {
+            val card = rng.deck[cursor++]
+            val p = state.players.first { it.seat == seat }
+            updates[seat] = if (isUpDeal) {
+                p.holeCards to (p.upCards + card)
+            } else {
+                (p.holeCards + card) to p.upCards
+            }
         }
-        val newCommunity = state.community + (0 until toAdd).map { rng.deck[state.deckCursor + it] }
-        val newCursor = state.deckCursor + toAdd
-        val resetPlayers = state.players.map { p ->
-            p.copy(
-                committedThisStreet = 0L,
-                // active 는 actedThisStreet=false, 비활성(folded/allIn)은 true 로 유지 (라운드 종료 판정 영향 없게)
-                actedThisStreet = !p.active,
-            )
+        val baseCommittedReset = state.players.map { p ->
+            val u = updates[p.seat]
+            if (u == null) {
+                p.copy(
+                    committedThisStreet = 0L,
+                    actedThisStreet = !p.active,
+                )
+            } else {
+                p.copy(
+                    holeCards = u.first,
+                    upCards = u.second,
+                    committedThisStreet = 0L,
+                    actedThisStreet = !p.active,
+                )
+            }
         }
-        // post-flop: first to act = SB (btn 다음 alive). heads-up 도 같은 공식 → btn 다음 = non-btn = BB
-        val firstActor = nextActiveSeatAfter(state.btnSeat, resetPlayers)
+
+        val firstActor = bestExposedSeat(baseCommittedReset)
+
         return state.copy(
-            players = resetPlayers,
-            community = newCommunity,
-            deckCursor = newCursor,
+            players = baseCommittedReset,
+            deckCursor = cursor,
             street = next,
             betToCall = 0L,
-            minRaise = state.config.bigBlind,
+            minRaise = state.config.bringIn.coerceAtLeast(1L),
             reopenAction = true,
-            lastFullRaiseAmount = state.config.bigBlind,
+            lastFullRaiseAmount = state.config.bringIn.coerceAtLeast(1L),
             lastAggressorSeat = null,
+            raisesThisStreet = 0,   // 새 스트릿마다 raise cap 카운터 초기화
             toActSeat = firstActor,
             stateVersion = state.stateVersion + 1,
         )
@@ -349,7 +430,6 @@ object HoldemReducer {
 
     private fun runShowdown(state: GameState): GameState {
         val live = state.players.filter { !it.folded }
-
         val commitments = state.players.map {
             PlayerCommitment(seat = it.seat, committed = it.committedThisHand, folded = it.folded)
         }
@@ -361,13 +441,10 @@ object HoldemReducer {
         val handInfos: Map<Int, ShowdownHandInfo>
 
         if (live.size <= 1) {
-            // 단독 승: 모든 팟 + uncalled 는 단독 승자에게 귀속
             val winner = live.firstOrNull()?.seat
             val total = sideResult.pots.sumOf { it.amount }
-            val uncalledSum = sideResult.uncalledReturn.values.sum()
             payouts = if (winner != null) {
                 val per = mutableMapOf(winner to total)
-                // uncalled 는 기존 committer 들에게 각자 환급 (단독 승자에게 재귀속 아님)
                 sideResult.uncalledReturn.forEach { (s, amt) -> per.merge(s, amt) { a, b -> a + b } }
                 per
             } else emptyMap()
@@ -382,21 +459,29 @@ object HoldemReducer {
             }
             handInfos = emptyMap()
         } else {
+            val isHiLo = state.mode == GameMode.SEVEN_STUD_HI_LO
             val bestHands: Map<Int, HandValue> = live.associate { p ->
-                p.seat to HandEvaluatorHoldem.evaluate(p.holeCards, state.community)
+                p.seat to HandEvaluator7Stud.evaluateBest(p.holeCards + p.upCards)
             }
+            val lowHands: Map<Int, LowValue?> = if (isHiLo) {
+                live.associate { p ->
+                    p.seat to HandEvaluatorHiLo.evaluateLow(p.holeCards + p.upCards)
+                }
+            } else emptyMap()
             payouts = ShowdownResolver.resolveAll(
                 result = sideResult,
                 hi = bestHands,
+                lo = lowHands,
                 seatOrderForOdd = seatOrder,
-                hiLoSplit = false,
+                hiLoSplit = isHiLo,
             )
             potSummaries = sideResult.pots.mapIndexed { idx, pot ->
-                val winners = winnersForPot(pot.eligibleSeats, bestHands)
+                val hiWinners = winnersForPot(pot.eligibleSeats, bestHands)
+                val loWinners = if (isHiLo) loWinnersForPot(pot.eligibleSeats, lowHands) else emptyList()
                 PotSummary(
                     amount = pot.amount,
                     eligibleSeats = pot.eligibleSeats,
-                    winnerSeats = winners.toSet(),
+                    winnerSeats = (hiWinners + loWinners).toSet(),
                     index = idx,
                 )
             }
@@ -442,7 +527,44 @@ object HoldemReducer {
         return sub.filter { it.second.compareTo(max) == 0 }.map { it.first }
     }
 
-    // ------------------------------------------------------- Seat utils
+    /** HiLo 로우 승자 — qualifier 미달(null) 좌석 제외, LowValue 가장 강한(작은) 좌석. */
+    private fun loWinnersForPot(eligible: Set<Int>, lo: Map<Int, LowValue?>): List<Int> {
+        val sub = eligible.mapNotNull { s -> lo[s]?.let { s to it } }
+        if (sub.isEmpty()) return emptyList()
+        val min = sub.minOf { it.second }
+        return sub.filter { it.second.compareTo(min) == 0 }.map { it.first }
+    }
+
+    // ------------------------------------------------------- Stud helpers
+
+    /** 가장 약한 up-card 좌석 (rank asc, 동률 시 suit asc — ♣ 가장 약). */
+    private fun pickBringInSeat(players: List<PlayerState>): Int {
+        val candidates = players.filter { !it.folded && it.upCards.isNotEmpty() }
+        require(candidates.isNotEmpty()) { "no up-cards dealt; cannot determine bring-in" }
+        return candidates.minByOrNull { p ->
+            val u = p.upCards.first()
+            // 작을수록 약 — rank.value 가장 작은 + 동률 시 suit ordinal 작은
+            u.rank.value * 10 + u.suit.ordinal
+        }!!.seat
+    }
+
+    /** 4~7th first-to-act: 가장 강한 노출 핸드 (HandValue), 동률 시 최고 up-card (rank then suit desc — ♠ 최강). */
+    private fun bestExposedSeat(players: List<PlayerState>): Int {
+        val candidates = players.filter { it.active && it.upCards.isNotEmpty() }
+        if (candidates.isEmpty()) {
+            // 모두 all-in/folded — fallback: 살아있는 첫 좌석 (어차피 isBettingRoundComplete 가 즉시 true 처리)
+            return players.firstOrNull { !it.folded }?.seat ?: 0
+        }
+        val best = candidates.maxWithOrNull(
+            compareBy<PlayerState>(
+                { p -> HandEvaluator7Stud.evaluatePartial(p.upCards) ?: HandValue.MIN },
+                { p -> p.upCards.maxOf { it.rank.value * 10 + it.suit.ordinal } },
+            )
+        )!!
+        return best.seat
+    }
+
+    // ------------------------------------------------------- Seat utils (Holdem 과 동일)
 
     private fun chooseBtnSeat(prev: Int?, players: List<PlayerState>): Int {
         val seats = players.filter { !it.folded }.map { it.seat }.sorted()
@@ -451,48 +573,13 @@ object HoldemReducer {
         return seats.firstOrNull { it > prev } ?: seats.first()
     }
 
-    private fun blindSeats(btn: Int, players: List<PlayerState>): Pair<Int, Int> {
-        val live = players.filter { !it.folded }.map { it.seat }.sorted()
-        return if (live.size == 2) {
-            val bb = live.first { it != btn }
-            btn to bb
-        } else {
-            val sb = nextSeat(btn, live)
-            val bb = nextSeat(sb, live)
-            sb to bb
-        }
-    }
-
-    private fun postBlind(players: List<PlayerState>, seat: Int, amount: Long): List<PlayerState> =
-        players.map { p ->
-            if (p.seat != seat) p
-            else {
-                val pay = amount.coerceAtMost(p.chips)
-                val isAllIn = pay == p.chips
-                p.copy(
-                    chips = p.chips - pay,
-                    committedThisHand = p.committedThisHand + pay,
-                    committedThisStreet = p.committedThisStreet + pay,
-                    allIn = isAllIn,
-                    actedThisStreet = false,   // BB option 보존
-                )
-            }
-        }
-
     private fun dealOrder(btn: Int, players: List<PlayerState>): List<Int> {
         val live = players.filter { !it.folded }.map { it.seat }.sorted()
-        if (live.size == 2) {
-            // heads-up 딜: non-btn(BB) 먼저, btn(SB) 나중 (M0 기준 단순)
-            val nonBtn = live.first { it != btn }
-            return listOf(nonBtn, btn)
-        }
+        if (live.isEmpty()) return emptyList()
         val i = live.indexOfFirst { it > btn }
         val start = if (i == -1) 0 else i
         return live.drop(start) + live.take(start)
     }
-
-    private fun nextSeat(from: Int, seats: List<Int>): Int =
-        seats.firstOrNull { it > from } ?: seats.first()
 
     private fun nextActiveSeatAfter(from: Int, players: List<PlayerState>): Int {
         val seats = players.filter { it.active }.map { it.seat }.sorted()
@@ -505,6 +592,28 @@ object HoldemReducer {
         val i = seats.indexOfFirst { it > btn }
         val start = if (i == -1) 0 else i
         return seats.drop(start) + seats.take(start)
+    }
+
+    // ------------------------------------------------------- Open-pair detector (4th street rule hook)
+
+    /**
+     * 4th street(=업카드 2장 시점)에 노출 페어를 가진 좌석들. 정통 한국식/미국 fixed-limit 7스터드에서
+     * 이 시점에 노출 페어가 있으면 베팅 한도가 small bet → big bet 으로 더블되는 옵션이 발동되지만,
+     * 본 구현은 NL 베팅이라 베팅 룰 자체는 변경되지 않음 — 본 함수는 UI 인디케이터(시트 라벨) 와
+     * 추후 fixed-limit 변환 카드의 후크 용도.
+     *
+     * 반환: seat → 노출 페어 rank value (예: pair of 7s → 7).
+     */
+    fun openPairsOnFourthStreet(state: GameState): Map<Int, Int> {
+        if (state.street != Street.FOURTH) return emptyMap()
+        if (state.mode != GameMode.SEVEN_STUD && state.mode != GameMode.SEVEN_STUD_HI_LO) return emptyMap()
+        return state.players
+            .filter { !it.folded && it.upCards.size == 2 }
+            .mapNotNull { p ->
+                val (a, b) = p.upCards
+                if (a.rank == b.rank) p.seat to a.rank.value else null
+            }
+            .toMap()
     }
 }
 

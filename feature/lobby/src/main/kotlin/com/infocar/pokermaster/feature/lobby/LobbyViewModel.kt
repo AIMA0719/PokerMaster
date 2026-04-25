@@ -51,8 +51,12 @@ class LobbyViewModel @Inject constructor(
                 }
             }
             .onFailure { android.util.Log.w("LobbyVM", "check-in failed", it) }
+        // 테이블에서 막 복귀했을 때 settle(wallet 입금) 가 백그라운드 launch 라 race — 짧은
+        // delay 로 settle 완료를 기다린 뒤 잔고 판정.
+        kotlinx.coroutines.delay(800L)
         val state = runCatching { walletRepo.getState() }.getOrNull() ?: return@launch
-        if (state.balanceChips < WalletRepository.TABLE_STAKE) {
+        // 사용자 룰: 본인 buy-in = wallet 잔고 전체 → wallet > 0 이면 진입 가능. 파산은 0 일 때만.
+        if (state.balanceChips == 0L) {
             _events.value = LobbyEvent.Bankrupt(state.balanceChips)
         }
     }
@@ -67,8 +71,8 @@ class LobbyViewModel @Inject constructor(
         _events.value = null
     }
 
-    /** Table 진입 가능 여부 (잔고 >= STAKE). UI 가 파산 모달 처리 후에만 navigate. */
-    fun canEnterTable(): Boolean = wallet.value.balanceChips >= WalletRepository.TABLE_STAKE
+    /** Table 진입 가능 여부 — 본인 buy-in = wallet 전체 룰: wallet > 0 면 진입. */
+    fun canEnterTable(): Boolean = wallet.value.balanceChips > 0L
 }
 
 sealed interface LobbyEvent {

@@ -35,8 +35,11 @@ data class GuideSettings(
         if (guideModeEnabled) this else copy(guideModeEnabled = true)
 
     companion object {
-        /** 신규 설치 사용자는 가이드 ON. 설계서 §1.2 입문자 친화 원칙. */
-        const val DEFAULT_GUIDE_ENABLED: Boolean = true
+        /**
+         * 신규 설치 사용자는 가이드 OFF — 한게임 풍 풀스크린 펠트가 가이드 backdrop 으로
+         * 가려지지 않도록. 인게임 메뉴에서 "가이드 모드 켜기" 토글로 명시 활성화.
+         */
+        const val DEFAULT_GUIDE_ENABLED: Boolean = false
 
         /** Welcome 이후 첫 ActionHint 의 기본 문구. */
         const val DEFAULT_HINT: String =

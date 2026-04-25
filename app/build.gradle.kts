@@ -10,6 +10,9 @@ android {
     // v1.1 §5.5: 16KB page size 대응 위해 NDK r27+ 필요. 28.2 사용.
     ndkVersion = "28.2.13676358"
 
+    // PAD: AI 모델 에셋팩. Play Store 배포 시 install-time 으로 모델 자동 포함.
+    assetPacks += listOf(":model-pack")
+
     defaultConfig {
         applicationId = "com.infocar.pokermaster"
         versionCode = 1
@@ -35,6 +38,12 @@ android {
 
     buildFeatures {
         buildConfig = true
+    }
+
+    androidResources {
+        // GGUF 는 압축이 거의 안 먹는 binary 라 APK/asset pack 에서 압축하면 추출 시 디스크 2배
+        // 사용 + 느림. install-time PAD 의 mmap-friendly 접근에도 유리.
+        noCompress += "gguf"
     }
 
     packaging {

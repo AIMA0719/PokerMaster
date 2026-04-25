@@ -41,4 +41,10 @@
     <string name="menu_surrender">핸드 항복</string>
     <string name="menu_exit">테이블 나가기</string>
     <string name="waiting_for_npc">상대 플레이어가 생각 중…</string>
+    <string name="prep_dealing">딜링 준비 중…</string>
+    <string name="winner_you_win">YOU WIN!</string>
+    <string name="winner_name_wins">%1$s 승리!</string>
+    <string name="winner_payout">+%1$s</string>
+    <string name="winner_split_with">스플릿: %1$s</string>
+    <string name="auto_next_in">다음 판 %1$d초…</string>
 </resources>

@@ -35,6 +35,8 @@ data class GameState(
     val lastAggressorSeat: Int? = null,
     /** 소비된 카드 수 (deckCursor). Rng.deck 에서 이미 분배된 인덱스 기반. */
     val deckCursor: Int = 0,
+    /** 현 스트릿에서 발생한 full raise 수. 7스터드 raise cap 3 enforcement 용. 홀덤은 미사용. */
+    val raisesThisStreet: Int = 0,
     /** 현 핸드 Rng commit (hex) — UI 표기용. 원본 Rng 는 Controller 가 보관. */
     val rngCommitHex: String = "",
     /** 쇼다운 시 계산된 좌석별 payout (Controller 가 채움). 다음 핸드 전까지 UI 애니에 사용. */

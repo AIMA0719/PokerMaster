@@ -4,6 +4,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import com.infocar.pokermaster.core.model.Action
 import com.infocar.pokermaster.core.model.Card
+import com.infocar.pokermaster.core.model.GameMode
 import com.infocar.pokermaster.core.model.GameState
 import com.infocar.pokermaster.core.model.PlayerState
 import com.infocar.pokermaster.core.model.PotSummary
@@ -28,6 +29,8 @@ interface ActionBarState {
     val currentCommitted: Long
     val potSize: Long
     val myChips: Long
+    /** 7스터드/HiLo 에서 콜 봉착 시 노출되는 "구사" (SAVE_LIFE) 옵션. 홀덤은 항상 false. */
+    val canSaveLife: Boolean get() = false
 }
 
 /** 핸드 종료 바텀시트에 표현되는 사이드팟 시퀀스. (Agent B) */
@@ -62,6 +65,7 @@ object TableUiMapper {
         if (!me.active) return null
         val toCall = (state.betToCall - me.committedThisStreet).coerceAtLeast(0L)
         val myMaxCommit = me.committedThisStreet + me.chips
+        val isStud = state.mode == GameMode.SEVEN_STUD || state.mode == GameMode.SEVEN_STUD_HI_LO
         return object : ActionBarState {
             override val canCheck = toCall == 0L
             override val canCall = toCall > 0L
@@ -72,12 +76,21 @@ object TableUiMapper {
             override val currentCommitted = me.committedThisStreet
             override val potSize = state.players.sumOf { it.committedThisHand }
             override val myChips = me.chips
+            override val canSaveLife = isStud && toCall > 0L && me.chips > 0
         }
     }
 
     fun totalPot(state: GameState): Long =
         state.players.sumOf { it.committedThisHand }
 }
+
+/** 게임 오버 정보 (한 명만 칩 보유 시). */
+data class GameOverInfo(
+    val winnerNickname: String,
+    val winnerSeat: Int,
+    val isHumanWinner: Boolean,
+    val finalChips: Long,
+)
 
 /** Modifier alias — Compose import 줄이기. */
 typealias Modif = Modifier

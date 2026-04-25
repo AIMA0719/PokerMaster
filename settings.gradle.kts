@@ -48,3 +48,6 @@ include(":feature:onboarding")  // M3 (v1.1 §1.2.B)
 include(":feature:history")     // M5: 핸드 히스토리 리스트 + 리플레이 (§1.2.G/H/R)
 // include(":feature:training") // 스코프 제외 (M5 결정)
 // include(":feature:settings") // M3+
+
+// PAD: AI 모델 에셋팩 (install-time). Release AAB 에 모델 포함.
+include(":model-pack")

@@ -20,7 +20,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -45,17 +44,20 @@ import com.infocar.pokermaster.core.ui.theme.PokerMasterTheme
 import kotlinx.coroutines.delay
 
 /**
- * 핸드 종료 바텀시트.
+ * 핸드 종료 컴팩트 오버레이.
  *
- *  - slideInVertically (from bottom) 로 등장.
- *  - 팟 시퀀스는 200ms 간격으로 하나씩 등장 (메인 → 사이드1 → 사이드2 …).
- *  - 높이 80vh 이하 — heightIn + verticalScroll 로 overflow 대응.
+ * 기존 바텀시트(640dp 상한) 에서 컴팩트 인라인 오버레이로 변경:
+ *  - 테이블 하단에 작은 패널로 등장
+ *  - 자동 다음 핸드 카운트다운 표시
+ *  - 팟 시퀀스 200ms 간격 등장
+ *  - 높이 상한 320dp 로 축소
  */
 @Composable
 fun HandEndSheet(
     data: HandEndViewData,
     onNext: () -> Unit,
     onInsights: () -> Unit,
+    autoNextCountdown: Int? = null,
     modifier: Modifier = Modifier,
 ) {
     // 시트 자체 등장 애니메이션.
@@ -92,27 +94,27 @@ fun HandEndSheet(
         Surface(
             modifier = Modifier
                 .fillMaxWidth()
-                .heightIn(max = 640.dp),     // 80vh 근사 (합리적 상한).
+                .heightIn(max = 320.dp),
             shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
-            color = MaterialTheme.colorScheme.surface,
+            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f),
             tonalElevation = 8.dp,
         ) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 16.dp, vertical = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 // 1. 헤더
                 Text(
                     text = headerText,
-                    style = MaterialTheme.typography.titleLarge,
+                    style = MaterialTheme.typography.titleMedium,
                     color = PokerColors.Accent,
                     fontWeight = FontWeight.Bold,
                 )
 
-                // 2. 팟 시퀀스
+                // 2. 팟 시퀀스 (컴팩트)
                 data.pots.take(revealedPots).forEach { pot ->
                     val label = if (pot.index == 0)
                         stringResource(id = R.string.hand_end_pot_main)
@@ -126,13 +128,12 @@ fun HandEndSheet(
                     )
                 }
 
-                // 3. 베스트 5장 — 팟(들) 승자 교집합 좌석 기준
+                // 3. 베스트 5장
                 val winnerSeats = data.pots.flatMap { it.winnerSeats }.toSet()
                 val bestFiveRows = winnerSeats
                     .mapNotNull { seat -> data.bestFiveBySeat[seat]?.let { seat to it } }
                     .sortedBy { it.first }
                 if (bestFiveRows.isNotEmpty()) {
-                    Spacer(Modifier.height(4.dp))
                     bestFiveRows.forEach { (seat, cards) ->
                         BestFiveRow(
                             nickname = data.nicknameBySeat[seat] ?: "#$seat",
@@ -143,45 +144,44 @@ fun HandEndSheet(
 
                 // 4. Uncalled 환급
                 if (data.uncalledBySeat.isNotEmpty()) {
-                    Spacer(Modifier.height(4.dp))
                     Text(
                         text = stringResource(id = R.string.hand_end_uncalled_returned),
-                        style = MaterialTheme.typography.labelLarge,
+                        style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
                     )
                     data.uncalledBySeat.entries.sortedBy { it.key }.forEach { (seat, chips) ->
                         val name = data.nicknameBySeat[seat] ?: "#$seat"
                         Text(
                             text = "$name +${ChipFormat.format(chips)}",
-                            style = MaterialTheme.typography.bodyMedium,
+                            style = MaterialTheme.typography.bodySmall,
                             color = PokerColors.Warning,
                         )
                     }
                 }
 
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(4.dp))
 
-                // 5. 하단 액션
+                // 5. 하단 액션 (카운트다운 포함)
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    OutlinedButton(
-                        onClick = onInsights,
-                        modifier = Modifier.weight(1f).height(52.dp),
-                    ) {
-                        Text(text = stringResource(id = R.string.hand_end_insights))
-                    }
                     Button(
                         onClick = onNext,
-                        modifier = Modifier.weight(1f).height(52.dp),
+                        modifier = Modifier.weight(1f).height(48.dp),
                         colors = ButtonDefaults.buttonColors(
                             containerColor = PokerColors.Primary,
                             contentColor = Color.White,
                         ),
                     ) {
+                        val btnText = if (autoNextCountdown != null) {
+                            stringResource(id = R.string.hand_end_next) + " (${autoNextCountdown}s)"
+                        } else {
+                            stringResource(id = R.string.hand_end_next)
+                        }
                         Text(
-                            text = stringResource(id = R.string.hand_end_next),
+                            text = btnText,
                             fontWeight = FontWeight.SemiBold,
                         )
                     }
@@ -192,7 +192,7 @@ fun HandEndSheet(
 }
 
 /**
- * 베스트 5장 가로 배치. Agent C 의 [PlayingCard] 시그니처 사용.
+ * 베스트 5장 가로 배치.
  */
 @Composable
 private fun BestFiveRow(
@@ -264,6 +264,7 @@ private fun HandEndSheetPreview() {
                 data = data,
                 onNext = {},
                 onInsights = {},
+                autoNextCountdown = 3,
                 modifier = Modifier.align(Alignment.BottomCenter),
             )
         }

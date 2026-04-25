@@ -1,6 +1,7 @@
 package com.infocar.pokermaster.engine.controller
 
 import com.infocar.pokermaster.core.model.Action
+import com.infocar.pokermaster.core.model.GameMode
 import com.infocar.pokermaster.core.model.GameState
 import com.infocar.pokermaster.core.model.PlayerState
 import com.infocar.pokermaster.core.model.Street
@@ -40,8 +41,7 @@ class GameController(
             _state = validResume.state
         } else {
             currentRng = rngSupplier(INITIAL_HAND_INDEX)
-            _state = HoldemReducer.startHand(
-                config = config,
+            _state = startHand(
                 players = initialPlayers,
                 prevBtnSeat = null,
                 rng = currentRng,
@@ -49,6 +49,30 @@ class GameController(
                 startingVersion = GameState.INITIAL_VERSION,
             )
         }
+    }
+
+    /** 모드별 reducer 디스패치. SEVEN_STUD_HI_LO 는 v1.1 후속. */
+    private fun startHand(
+        players: List<PlayerState>,
+        prevBtnSeat: Int?,
+        rng: Rng,
+        handIndex: Long,
+        startingVersion: Long,
+    ): GameState = when (config.mode) {
+        GameMode.HOLDEM_NL -> HoldemReducer.startHand(config, players, prevBtnSeat, rng, handIndex, startingVersion)
+        GameMode.SEVEN_STUD, GameMode.SEVEN_STUD_HI_LO ->
+            StudReducer.startHand(config, players, prevBtnSeat, rng, handIndex, startingVersion)
+    }
+
+    private fun reduceAct(state: GameState, seat: Int, action: Action, rng: Rng): GameState =
+        when (state.mode) {
+            GameMode.HOLDEM_NL -> HoldemReducer.act(state, seat, action, rng)
+            GameMode.SEVEN_STUD, GameMode.SEVEN_STUD_HI_LO -> StudReducer.act(state, seat, action, rng)
+        }
+
+    private fun reduceAckShowdown(state: GameState): GameState = when (state.mode) {
+        GameMode.HOLDEM_NL -> HoldemReducer.ackShowdown(state)
+        GameMode.SEVEN_STUD, GameMode.SEVEN_STUD_HI_LO -> StudReducer.ackShowdown(state)
     }
 
     /** toActSeat 이 존재하면 그 seat 이 active 인지 검증. null 이면 쇼다운 대기 — OK. */
@@ -71,7 +95,7 @@ class GameController(
         val seat = _state.toActSeat ?: return _state
         val p = _state.players.firstOrNull { it.seat == seat } ?: return _state
         if (!p.isHuman) return _state
-        _state = HoldemReducer.act(_state, seat, action, currentRng)
+        _state = reduceAct(_state, seat, action, currentRng)
         return _state
     }
 
@@ -85,7 +109,7 @@ class GameController(
         if (p.isHuman) return _state
         val persona = AiDriver.resolvePersona(p)
         val action = aiDriver.act(_state, seat, persona)
-        _state = HoldemReducer.act(_state, seat, action, currentRng)
+        _state = reduceAct(_state, seat, action, currentRng)
         return _state
     }
 
@@ -116,14 +140,14 @@ class GameController(
         val persona = AiDriver.resolvePersona(p)
         val streetBefore = _state.street
         val action = aiDriver.actWithLlm(_state, seat, persona, advisor, timeoutMs)
-        _state = HoldemReducer.act(_state, seat, action, currentRng)
+        _state = reduceAct(_state, seat, action, currentRng)
         return NpcActResult(state = _state, actorSeat = seat, action = action, streetBefore = streetBefore)
     }
 
     /** 쇼다운 UI 애니메이션 완료 후 호출 — pending 해제. pending 이 없으면 noop. */
     fun ackShowdown(): GameState {
         if (_state.pendingShowdown == null) return _state
-        _state = HoldemReducer.ackShowdown(_state)
+        _state = reduceAckShowdown(_state)
         return _state
     }
 
@@ -132,8 +156,7 @@ class GameController(
         val s = _state
         val next = s.handIndex + 1
         currentRng = rngSupplier(next)
-        _state = HoldemReducer.startHand(
-            config = config,
+        _state = startHand(
             players = s.players,
             prevBtnSeat = s.btnSeat,
             rng = currentRng,

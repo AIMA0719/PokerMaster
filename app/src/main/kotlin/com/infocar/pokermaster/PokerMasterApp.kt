@@ -3,6 +3,7 @@ package com.infocar.pokermaster
 import android.app.Application
 import android.content.ComponentCallbacks2
 import android.util.Log
+import androidx.work.WorkManager
 import com.infocar.pokermaster.di.AppScope
 import com.infocar.pokermaster.engine.llm.LlmSession
 import dagger.hilt.android.HiltAndroidApp
@@ -34,6 +35,9 @@ class PokerMasterApp : Application(), ComponentCallbacks2 {
 
     override fun onCreate() {
         super.onCreate()
+        // 옛 finished 모델 다운로드 WorkInfo 정리 — 어제 세션의 SUCCEEDED/FAILED 가 오늘 첫
+        // observe() 에 emit 되어 ModelGateScreen 의 race 에 끼어드는 것을 사전에 차단.
+        runCatching { WorkManager.getInstance(this).pruneWork() }
         // backend 초기화는 suspend — Application.onCreate 를 블로킹할 수 없으므로 AppScope 에 launch.
         // 실패해도 LlmSession 이 LoadFailed 로 전이하고 UI 는 StateFlow 를 읽어 분기한다.
         appScope.launch {
