@@ -1,5 +1,8 @@
 package com.infocar.pokermaster.feature.table
 
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -15,12 +18,14 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -57,6 +62,12 @@ val LocalHighContrastCards = staticCompositionLocalOf { false }
  * 화면 진입 후 최소 대기는 유지하되, 시각적 motion 만 감소.
  */
 val LocalReduceMotion = staticCompositionLocalOf { false }
+
+/**
+ * 액션 알림 — A11ySettings.announceActions 가 true 일 때 NPC/사람 액션 발생 시 TalkBack 으로
+ * 음성 안내 (액션 라벨 변화 → View.announceForAccessibility). 시각 정보 보조 채널.
+ */
+val LocalAnnounceActions = staticCompositionLocalOf { false }
 
 /**
  * 플레잉 카드 컴포넌트. v1.1 §4.3 — 저작권 회피를 위해 자체 일러스트 없이
@@ -100,24 +111,45 @@ fun PlayingCard(
         .then(if (highlight) Modifier.scale(1.05f) else Modifier)
         .semantics { contentDescription = semanticsLabel }
 
+    // M7: 카드 flip 애니 — faceDown 변경 시 Y축 180° 회전. 0~90° 면 앞면, 90~180° 면 뒷면 표시.
+    //  reduceMotion 시 duration 0 으로 즉시 전환.
+    val flipDuration = if (LocalReduceMotion.current) 0 else 400
+    val rotation by animateFloatAsState(
+        targetValue = if (faceDown) 180f else 0f,
+        animationSpec = tween(flipDuration, easing = FastOutSlowInEasing),
+        label = "card-flip",
+    )
+    val showFront = rotation < 90f
+    val flipModifier = baseModifier.graphicsLayer {
+        rotationY = rotation
+        cameraDistance = 12f * density
+    }
+
     when {
-        faceDown -> CardBack(
-            modifier = baseModifier,
-            cornerRadius = cornerRadius,
-            gold = gold,
-            navy = backBase,
-            teal = backPattern,
-            highlight = highlight,
-        )
+        !showFront -> {
+            // 뒷면. 부모 layer 가 이미 180° 부근으로 회전했으므로 뒷면 그래픽은 거울 반전 상태.
+            // 자식에 graphicsLayer { rotationY = 180f } 를 추가해 보정 — flipped(180) 시 텍스트/패턴이
+            // 정상으로 보임.
+            Box(modifier = flipModifier) {
+                CardBack(
+                    modifier = Modifier.fillMaxSize().graphicsLayer { rotationY = 180f },
+                    cornerRadius = cornerRadius,
+                    gold = gold,
+                    navy = backBase,
+                    teal = backPattern,
+                    highlight = highlight,
+                )
+            }
+        }
         card == null -> CardPlaceholder(
-            modifier = baseModifier,
+            modifier = flipModifier,
             cornerRadius = cornerRadius,
             highlight = highlight,
             gold = gold,
         )
         else -> CardFace(
             card = card,
-            modifier = baseModifier,
+            modifier = flipModifier,
             cornerRadius = cornerRadius,
             highlight = highlight,
             gold = gold,

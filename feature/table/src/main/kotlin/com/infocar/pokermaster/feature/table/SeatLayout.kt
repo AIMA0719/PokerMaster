@@ -31,12 +31,14 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -232,6 +234,15 @@ internal fun PlayerSeat(
     }
 
     val seatHeight = if (isHuman) 60.dp else SeatHeight
+
+    // M7: A11ySettings.announceActionsAudibly true 시 본 시트의 액션 라벨 변경을 TalkBack 으로 음성 안내.
+    val announceActions = LocalAnnounceActions.current
+    val view = LocalView.current
+    LaunchedEffect(lastActionLabel) {
+        if (announceActions && !lastActionLabel.isNullOrBlank()) {
+            view.announceForAccessibility("${player.nickname}: $lastActionLabel")
+        }
+    }
 
     Row(
         modifier = modifier.semantics(mergeDescendants = true) {

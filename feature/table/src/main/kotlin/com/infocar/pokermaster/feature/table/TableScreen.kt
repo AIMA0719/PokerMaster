@@ -236,6 +236,7 @@ fun TableScreen(
     CompositionLocalProvider(
         LocalHighContrastCards provides a11ySettings.highContrastCards,
         LocalReduceMotion provides a11ySettings.reduceMotion,
+        LocalAnnounceActions provides a11ySettings.announceActionsAudibly,
     ) {
     Box(modifier = Modifier.fillMaxSize()) {
         TableContent(

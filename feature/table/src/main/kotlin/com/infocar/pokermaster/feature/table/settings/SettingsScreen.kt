@@ -179,6 +179,11 @@ fun SettingsScreen(
                         checked = state.a11y.highContrastCards,
                         onChange = viewModel::setHighContrastCards,
                     )
+                    ToggleRow(
+                        label = "액션 음성 안내 (TalkBack)",
+                        checked = state.a11y.announceActionsAudibly,
+                        onChange = viewModel::setAnnounceActions,
+                    )
                 }
 
                 SectionCard("가이드") {

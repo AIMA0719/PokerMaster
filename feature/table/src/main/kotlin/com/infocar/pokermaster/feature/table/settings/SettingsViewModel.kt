@@ -73,6 +73,10 @@ class SettingsViewModel @Inject constructor(
         settingsRepo.setA11ySettings(state.value.a11y.copy(highContrastCards = enabled))
     }
 
+    fun setAnnounceActions(enabled: Boolean) = viewModelScope.launch {
+        settingsRepo.setA11ySettings(state.value.a11y.copy(announceActionsAudibly = enabled))
+    }
+
     fun setGuideMode(enabled: Boolean) = viewModelScope.launch {
         settingsRepo.setGuideSettings(state.value.guide.copy(guideModeEnabled = enabled))
     }
