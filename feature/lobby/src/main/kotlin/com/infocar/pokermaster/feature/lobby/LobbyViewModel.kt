@@ -50,7 +50,11 @@ class LobbyViewModel @Inject constructor(
                     _events.value = LobbyEvent.DailyBonus(r.bonus, r.newStreak, r.newBalance)
                 }
             }
-            .onFailure { android.util.Log.w("LobbyVM", "check-in failed", it) }
+            .onFailure {
+                android.util.Log.w("LobbyVM", "check-in failed", it)
+                // M7: 사용자 가시 메시지 — 보너스 누락 사실은 알려주되 게임 진입은 차단하지 않음.
+                _events.value = LobbyEvent.Error("일일 보너스 확인에 실패했어요. 잠시 후 다시 시도해 주세요.")
+            }
         // 테이블에서 막 복귀했을 때 settle(wallet 입금) 가 백그라운드 launch 라 race — 짧은
         // delay 로 settle 완료를 기다린 뒤 잔고 판정.
         kotlinx.coroutines.delay(800L)
@@ -63,8 +67,11 @@ class LobbyViewModel @Inject constructor(
 
     fun onResetBankrupt() = viewModelScope.launch {
         runCatching { walletRepo.resetBankrupt() }
-            .onFailure { android.util.Log.w("LobbyVM", "reset bankrupt failed", it) }
-        _events.value = null
+            .onSuccess { _events.value = null }
+            .onFailure {
+                android.util.Log.w("LobbyVM", "reset bankrupt failed", it)
+                _events.value = LobbyEvent.Error("리셋에 실패했어요. 앱 재시작 후 다시 시도해 주세요.")
+            }
     }
 
     fun dismissEvent() {
@@ -78,4 +85,6 @@ class LobbyViewModel @Inject constructor(
 sealed interface LobbyEvent {
     data class DailyBonus(val chipsGranted: Long, val streak: Int, val newBalance: Long) : LobbyEvent
     data class Bankrupt(val currentBalance: Long) : LobbyEvent
+    /** silent fail 대신 사용자에게 짧게 토스트로 알려주는 전이형 메시지. dismissEvent() 로 소거. */
+    data class Error(val message: String) : LobbyEvent
 }

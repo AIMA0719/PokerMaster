@@ -149,7 +149,8 @@ fun LobbyScreen(
         }
     }
 
-    // M6-C: Daily bonus / 파산 모달.
+    // M6-C: Daily bonus / 파산 모달. M7: silent fail 대신 Toast 노출.
+    val ctx = androidx.compose.ui.platform.LocalContext.current
     when (val e = event) {
         is LobbyEvent.DailyBonus -> DailyBonusDialog(
             chipsGranted = e.chipsGranted,
@@ -161,6 +162,10 @@ fun LobbyScreen(
             balance = e.currentBalance,
             onReset = viewModel::onResetBankrupt,
         )
+        is LobbyEvent.Error -> LaunchedEffect(e) {
+            android.widget.Toast.makeText(ctx, e.message, android.widget.Toast.LENGTH_SHORT).show()
+            viewModel.dismissEvent()
+        }
         null -> Unit
     }
 }
