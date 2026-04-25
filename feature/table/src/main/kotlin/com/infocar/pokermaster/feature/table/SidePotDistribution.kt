@@ -96,15 +96,27 @@ fun SidePotDistribution(
             Spacer(Modifier.height(6.dp))
 
             // 중: 자격자 닉네임 목록 (승자 = 골드, 비승자 = 회색)
+            //  HiLo 모드(loWinnerSeats 가 비어있지 않거나 hiWinnerSeats != winnerSeats)면
+            //  hi/lo/scoop 라벨 표시. 그 외엔 단순 ★ 표시.
+            val isHiLoBranch = pot.loWinnerSeats.isNotEmpty()
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 pot.eligibleSeats.sorted().forEach { seat ->
-                    val isWinner = seat in pot.winnerSeats
                     val name = nicknameBySeat[seat] ?: "#$seat"
+                    val hi = seat in pot.hiWinnerSeats
+                    val lo = seat in pot.loWinnerSeats
+                    val isWinner = hi || lo
+                    val label = when {
+                        !isWinner -> name
+                        !isHiLoBranch -> "★ $name"
+                        hi && lo -> "★ HL $name"   // 스쿠프 (hi+lo 동시)
+                        hi -> "★ H $name"
+                        else -> "★ L $name"
+                    }
                     Text(
-                        text = if (isWinner) "★ $name" else name,
+                        text = label,
                         style = MaterialTheme.typography.labelMedium,
                         color = if (isWinner) PokerColors.Accent else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
                         fontWeight = if (isWinner) FontWeight.SemiBold else FontWeight.Normal,

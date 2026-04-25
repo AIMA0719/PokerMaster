@@ -87,7 +87,12 @@ data class ShowdownHandInfo(
 data class PotSummary(
     val amount: Long,
     val eligibleSeats: Set<Int>,
+    /** Hi+Lo 합집합 — 기존 호출자 호환 위해 유지. UI 분기는 [hiWinnerSeats]/[loWinnerSeats] 사용. */
     val winnerSeats: Set<Int>,
     /** 사이드팟 인덱스 — 0 = main, 1+ = side. */
     val index: Int,
+    /** 하이 사이드 승자. 홀덤 + Hi-only 7스터드는 [winnerSeats] 와 동일. */
+    val hiWinnerSeats: Set<Int> = winnerSeats,
+    /** 로우 사이드 승자. HiLo 모드에서만 채워짐 (qualify 미달 시 emptySet). 그 외 emptySet. */
+    val loWinnerSeats: Set<Int> = emptySet(),
 )

@@ -78,6 +78,7 @@ import com.infocar.pokermaster.core.model.TableConfig
 import com.infocar.pokermaster.core.ui.theme.HangameColors
 import com.infocar.pokermaster.core.ui.theme.PokerColors
 import com.infocar.pokermaster.core.ui.theme.PokerMasterTheme
+import com.infocar.pokermaster.engine.controller.StudReducer
 import com.infocar.pokermaster.engine.controller.llm.LlmAdvisor
 import kotlinx.coroutines.CoroutineScope
 import com.infocar.pokermaster.feature.table.anim.pulseFloat
@@ -478,6 +479,11 @@ private fun MultiSeatLayout(
 
     val totalActiveSeats = sortedBySeat.size.coerceAtLeast(1)
 
+    // 7스터드 시트 라벨: 3rd 의 브링인 좌석, 4th 의 오픈 페어 좌석.
+    val seatBadges: Map<Int, String> = remember(state.mode, state.street, state.lastAggressorSeat, state.players) {
+        buildStudSeatBadges(state)
+    }
+
     @Composable
     fun seat(player: PlayerState) {
         val payout = state.pendingShowdown?.payouts?.get(player.seat)?.takeIf { it > 0L }
@@ -494,6 +500,7 @@ private fun MultiSeatLayout(
             winnerPayout = payout,
             dealOrderIndex = sortedBySeat.indexOfFirst { it.seat == player.seat }.coerceAtLeast(0),
             totalActiveSeats = totalActiveSeats,
+            extraBadgeLabel = seatBadges[player.seat],
         )
     }
 
@@ -591,9 +598,26 @@ private fun MultiSeatLayout(
                 isShowdown = isShowdown,
                 winnerSeats = winnerSeats,
                 lastActionBySeat = lastActions,
+                seatBadges = seatBadges,
                 modifier = modifier,
             )
         }
+    }
+}
+
+/**
+ * 7스터드/HiLo 전용 시트 라벨 생성:
+ *  - 3rd street: bring-in 좌석 ("브링인")
+ *  - 4th street: 오픈 페어 좌석들 ("오픈 페어")
+ *  - 그 외 스트릿/모드: 빈 맵.
+ */
+private fun buildStudSeatBadges(state: GameState): Map<Int, String> {
+    val isStud = state.mode == GameMode.SEVEN_STUD || state.mode == GameMode.SEVEN_STUD_HI_LO
+    if (!isStud) return emptyMap()
+    return when (state.street) {
+        Street.THIRD -> state.lastAggressorSeat?.let { mapOf(it to "브링인") } ?: emptyMap()
+        Street.FOURTH -> StudReducer.openPairsOnFourthStreet(state).mapValues { "오픈 페어" }
+        else -> emptyMap()
     }
 }
 

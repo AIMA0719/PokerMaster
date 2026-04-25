@@ -85,6 +85,7 @@ fun SeatLayout(
     isShowdown: Boolean = false,
     winnerSeats: Set<Int> = emptySet(),
     lastActionBySeat: Map<Int, String> = emptyMap(),
+    seatBadges: Map<Int, String> = emptyMap(),
 ) {
     if (players.isEmpty()) {
         Box(modifier = modifier)
@@ -129,6 +130,7 @@ fun SeatLayout(
                 lastActionLabel = lastActionBySeat[player.seat],
                 dealOrderIndex = i,
                 totalActiveSeats = ordered.size,
+                extraBadgeLabel = seatBadges[player.seat],
                 modifier = Modifier
                     .align(Alignment.Center)
                     .offset(x = dx, y = dy),
@@ -174,6 +176,8 @@ internal fun PlayerSeat(
     dealOrderIndex: Int = 0,
     /** 라운드 길이 — 시트 수. */
     totalActiveSeats: Int = 1,
+    /** 7스터드 전용 시트 라벨 — "브링인" / "오픈 페어" 등 짧은 인디케이터. nickname 위에 노출. */
+    extraBadgeLabel: String? = null,
     modifier: Modifier = Modifier,
 ) {
     val seatWidth = if (isHuman) SeatWidthHuman else SeatWidthOther
@@ -260,6 +264,16 @@ internal fun PlayerSeat(
                         modifier = Modifier.weight(1f),
                         verticalArrangement = Arrangement.spacedBy(1.dp),
                     ) {
+                        if (extraBadgeLabel != null) {
+                            Text(
+                                text = extraBadgeLabel,
+                                color = HangameColors.SeatBorderActive,
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
                         Text(
                             text = player.nickname,
                             color = HangameColors.TextPrimary,

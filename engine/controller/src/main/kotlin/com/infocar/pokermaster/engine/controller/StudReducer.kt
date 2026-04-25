@@ -476,13 +476,17 @@ object StudReducer {
                 hiLoSplit = isHiLo,
             )
             potSummaries = sideResult.pots.mapIndexed { idx, pot ->
-                val hiWinners = winnersForPot(pot.eligibleSeats, bestHands)
-                val loWinners = if (isHiLo) loWinnersForPot(pot.eligibleSeats, lowHands) else emptyList()
+                val hiWinners = winnersForPot(pot.eligibleSeats, bestHands).toSet()
+                val loWinners = if (isHiLo) {
+                    loWinnersForPot(pot.eligibleSeats, lowHands).toSet()
+                } else emptySet()
                 PotSummary(
                     amount = pot.amount,
                     eligibleSeats = pot.eligibleSeats,
-                    winnerSeats = (hiWinners + loWinners).toSet(),
+                    winnerSeats = hiWinners + loWinners,
                     index = idx,
+                    hiWinnerSeats = hiWinners,
+                    loWinnerSeats = loWinners,
                 )
             }
             handInfos = live.associate { p ->
