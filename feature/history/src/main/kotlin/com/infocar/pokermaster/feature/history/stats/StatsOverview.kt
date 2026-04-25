@@ -1,12 +1,19 @@
 package com.infocar.pokermaster.feature.history.stats
 
 import com.infocar.pokermaster.core.data.history.HandHistoryRecord
+import com.infocar.pokermaster.core.model.ActionType
 
 /**
- * 통계 대시보드 표시용 집계 — M6-B.
+ * 통계 대시보드 표시용 집계 — M6-B + M7 VPIP/PFR.
  *
- * 설계서 §1.2.Y (V1 축약): winrate / hands / 최대팟 / 모드별. VPIP/PFR/3-bet% 같은 지표는
- * actionsJson 분석 필요하므로 v2 로 미룸.
+ * 설계서 §1.2.Y: winrate / hands / 최대팟 / 모드별 + 첫 스트릿 자발 참여(VPIP) / 첫 스트릿 레이즈(PFR).
+ * VPIP/PFR 정의:
+ *  - VPIP: 첫 스트릿(홀덤=preflop, 7스터드=3rd) 에서 본인 좌석이 자발적으로 칩을 더 넣은 핸드 비율.
+ *    CALL/BET/RAISE/ALL_IN/COMPLETE 가 한 번이라도 있으면 카운트. 강제 블라인드/앤티/브링인은
+ *    액션 로그에 기록되지 않으므로 자연스레 제외.
+ *  - PFR: 첫 스트릿에서 본인 좌석이 RAISE/BET/ALL_IN/COMPLETE 한 핸드 비율 (CALL 만 한 핸드는 제외).
+ *
+ *  분모: 본인 좌석이 살아있는 핸드 (= 모든 기록된 핸드) 수.
  */
 data class StatsOverview(
     val totalHands: Int,
@@ -14,6 +21,8 @@ data class StatsOverview(
     val winrate: Double,
     val totalPotChips: Long,
     val biggestPot: Long,
+    val vpip: Double,      // 0.0 ~ 1.0
+    val pfr: Double,       // 0.0 ~ 1.0
     val byMode: Map<String, ModeStats>,
 ) {
     companion object {
@@ -23,6 +32,8 @@ data class StatsOverview(
             winrate = 0.0,
             totalPotChips = 0L,
             biggestPot = 0L,
+            vpip = 0.0,
+            pfr = 0.0,
             byMode = emptyMap(),
         )
     }
@@ -34,6 +45,25 @@ data class ModeStats(
     val winrate: Double,
     val totalPotChips: Long,
     val biggestPot: Long,
+    val vpip: Double,
+    val pfr: Double,
+)
+
+/** VPIP 카운팅 대상 액션 — 자발적 칩 commit. */
+internal val VPIP_ACTIONS: Set<ActionType> = setOf(
+    ActionType.CALL,
+    ActionType.BET,
+    ActionType.RAISE,
+    ActionType.ALL_IN,
+    ActionType.COMPLETE,
+)
+
+/** PFR 카운팅 대상 액션 — 자발적 raise (call 단순참여 제외). */
+internal val PFR_ACTIONS: Set<ActionType> = setOf(
+    ActionType.BET,
+    ActionType.RAISE,
+    ActionType.ALL_IN,
+    ActionType.COMPLETE,
 )
 
 /**
@@ -50,6 +80,8 @@ object StatsCalculator {
         var wonTotal = 0
         var potTotal = 0L
         var biggestPot = 0L
+        var vpipHands = 0
+        var pfrHands = 0
         val modeAgg: MutableMap<String, MutableModeAgg> = mutableMapOf()
 
         for (r in records) {
@@ -59,11 +91,17 @@ object StatsCalculator {
             potTotal += r.potSize
             if (r.potSize > biggestPot) biggestPot = r.potSize
 
+            val (didVpip, didPfr) = computeVpipPfr(r, humanSeat)
+            if (didVpip) vpipHands++
+            if (didPfr) pfrHands++
+
             val agg = modeAgg.getOrPut(r.mode) { MutableModeAgg() }
             agg.hands++
             if (won) agg.wonHands++
             agg.totalPot += r.potSize
             if (r.potSize > agg.biggestPot) agg.biggestPot = r.potSize
+            if (didVpip) agg.vpipHands++
+            if (didPfr) agg.pfrHands++
         }
 
         val total = records.size
@@ -73,6 +111,8 @@ object StatsCalculator {
             winrate = wonTotal.toDouble() / total,
             totalPotChips = potTotal,
             biggestPot = biggestPot,
+            vpip = vpipHands.toDouble() / total,
+            pfr = pfrHands.toDouble() / total,
             byMode = modeAgg.mapValues { (_, v) ->
                 ModeStats(
                     hands = v.hands,
@@ -80,9 +120,30 @@ object StatsCalculator {
                     winrate = if (v.hands > 0) v.wonHands.toDouble() / v.hands else 0.0,
                     totalPotChips = v.totalPot,
                     biggestPot = v.biggestPot,
+                    vpip = if (v.hands > 0) v.vpipHands.toDouble() / v.hands else 0.0,
+                    pfr = if (v.hands > 0) v.pfrHands.toDouble() / v.hands else 0.0,
                 )
             },
         )
+    }
+
+    /**
+     * 한 핸드의 본인 좌석 첫 스트릿(streetIndex==0) 액션을 검사해 (vpip, pfr) 이중값 반환.
+     * 본인 좌석이 폴드만 한 경우 (=blind/ante 강제 commit 만) 둘 다 false.
+     */
+    private fun computeVpipPfr(r: HandHistoryRecord, humanSeat: Int?): Pair<Boolean, Boolean> {
+        if (humanSeat == null) return false to false
+        var vpip = false
+        var pfr = false
+        for (entry in r.actions) {
+            if (entry.streetIndex != 0) continue
+            if (entry.seat != humanSeat) continue
+            val type = entry.action.type
+            if (type in VPIP_ACTIONS) vpip = true
+            if (type in PFR_ACTIONS) pfr = true
+            if (vpip && pfr) break
+        }
+        return vpip to pfr
     }
 
     private class MutableModeAgg {
@@ -90,5 +151,7 @@ object StatsCalculator {
         var wonHands: Int = 0
         var totalPot: Long = 0L
         var biggestPot: Long = 0L
+        var vpipHands: Int = 0
+        var pfrHands: Int = 0
     }
 }

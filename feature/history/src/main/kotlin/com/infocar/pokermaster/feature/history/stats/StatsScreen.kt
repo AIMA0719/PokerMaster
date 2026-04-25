@@ -122,6 +122,8 @@ private fun SummaryCard(overview: StatsOverview) {
         MetricRow("승률", formatPercent(overview.winrate), accent = true)
         MetricRow("누적 팟 (칩)", formatChips(overview.totalPotChips), chip = true)
         MetricRow("최대 팟 (칩)", formatChips(overview.biggestPot), chip = true)
+        MetricRow("VPIP", formatPercent(overview.vpip), accent = true)
+        MetricRow("PFR", formatPercent(overview.pfr), accent = true)
     }
 }
 
@@ -147,6 +149,7 @@ private fun ModeBreakdownCard(overview: StatsOverview) {
                 MetricRow("  핸드", ms.hands.toString())
                 MetricRow("  승률", formatPercent(ms.winrate), accent = true)
                 MetricRow("  최대 팟", formatChips(ms.biggestPot), chip = true)
+                MetricRow("  VPIP / PFR", "${formatPercent(ms.vpip)} / ${formatPercent(ms.pfr)}", accent = true)
             }
             HorizontalDivider(color = HangameColors.SeatBorder)
         }

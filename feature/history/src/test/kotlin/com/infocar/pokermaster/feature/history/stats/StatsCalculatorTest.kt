@@ -3,6 +3,8 @@ package com.infocar.pokermaster.feature.history.stats
 import com.google.common.truth.Truth.assertThat
 import com.infocar.pokermaster.core.data.history.ActionLogEntry
 import com.infocar.pokermaster.core.data.history.HandHistoryRecord
+import com.infocar.pokermaster.core.model.Action
+import com.infocar.pokermaster.core.model.ActionType
 import com.infocar.pokermaster.core.model.GameMode
 import com.infocar.pokermaster.core.model.GameState
 import com.infocar.pokermaster.core.model.PlayerState
@@ -86,6 +88,77 @@ class StatsCalculatorTest {
         val o = StatsCalculator.computeFromRecords(listOf(r))
         assertThat(o.handsWon).isEqualTo(0)
     }
+
+    // -------------------- VPIP / PFR (M7) --------------------
+
+    @Test
+    fun `vpip and pfr are zero when no preflop human action`() {
+        val r = mkRecord(0, 0, 100, actions = emptyList())
+        val o = StatsCalculator.computeFromRecords(listOf(r))
+        assertThat(o.vpip).isEqualTo(0.0)
+        assertThat(o.pfr).isEqualTo(0.0)
+    }
+
+    @Test
+    fun `human preflop call counts vpip but not pfr`() {
+        val r = mkRecord(
+            humanSeat = 0, winnerSeat = 0, pot = 100,
+            actions = listOf(
+                ActionLogEntry(seat = 0, action = Action(ActionType.CALL), streetIndex = 0),
+            ),
+        )
+        val o = StatsCalculator.computeFromRecords(listOf(r))
+        assertThat(o.vpip).isEqualTo(1.0)
+        assertThat(o.pfr).isEqualTo(0.0)
+    }
+
+    @Test
+    fun `human preflop raise counts both vpip and pfr`() {
+        val r = mkRecord(
+            humanSeat = 0, winnerSeat = 0, pot = 200,
+            actions = listOf(
+                ActionLogEntry(seat = 0, action = Action(ActionType.RAISE, 100L), streetIndex = 0),
+            ),
+        )
+        val o = StatsCalculator.computeFromRecords(listOf(r))
+        assertThat(o.vpip).isEqualTo(1.0)
+        assertThat(o.pfr).isEqualTo(1.0)
+    }
+
+    @Test
+    fun `opponent action does not count toward human vpip pfr`() {
+        val r = mkRecord(
+            humanSeat = 0, winnerSeat = 1, pot = 50,
+            actions = listOf(
+                ActionLogEntry(seat = 1, action = Action(ActionType.RAISE, 100L), streetIndex = 0),
+            ),
+        )
+        val o = StatsCalculator.computeFromRecords(listOf(r))
+        assertThat(o.vpip).isEqualTo(0.0)
+        assertThat(o.pfr).isEqualTo(0.0)
+    }
+
+    @Test
+    fun `flop action does not count toward preflop vpip pfr`() {
+        val r = mkRecord(
+            humanSeat = 0, winnerSeat = 0, pot = 100,
+            actions = listOf(
+                ActionLogEntry(seat = 0, action = Action(ActionType.RAISE, 100L), streetIndex = 1),
+            ),
+        )
+        val o = StatsCalculator.computeFromRecords(listOf(r))
+        assertThat(o.vpip).isEqualTo(0.0)
+        assertThat(o.pfr).isEqualTo(0.0)
+    }
+
+    private fun mkRecord(
+        humanSeat: Int?,
+        winnerSeat: Int?,
+        pot: Long,
+        mode: String = "HOLDEM_NL",
+        actions: List<ActionLogEntry>,
+    ): HandHistoryRecord =
+        mkRecord(humanSeat, winnerSeat, pot, mode).copy(actions = actions)
 
     private fun mkRecord(
         humanSeat: Int?,
