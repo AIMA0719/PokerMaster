@@ -92,4 +92,40 @@ class EquityCalculatorTest {
         // 휠 hi+lo 동시 강 → scoop 가능성 ↑ → equity ≥ 0.6 기대
         assertThat(eq).isAtLeast(0.5)
     }
+
+    // ---------- HiLo 가중치 (M7-BugFix 회귀) ----------
+    @Test fun hi_lo_share_full_pot_to_hi_when_no_one_qualifies() {
+        val share = EquityCalculator.hiLoIterationShare(
+            hiShare = 1.0, loShare = 0.0,
+            myLoQualified = false, anyOpLoQualified = false,
+        )
+        // 아무도 lo qualify 못 하면 본인이 hi 단독 승 시 팟 100%.
+        assertThat(share).isEqualTo(1.0)
+    }
+
+    @Test fun hi_lo_share_split_when_my_lo_qualifies() {
+        val share = EquityCalculator.hiLoIterationShare(
+            hiShare = 1.0, loShare = 1.0,
+            myLoQualified = true, anyOpLoQualified = false,
+        )
+        // hi+lo scoop = 50% + 50% = 100%
+        assertThat(share).isEqualTo(1.0)
+    }
+
+    @Test fun hi_lo_share_split_when_only_opponent_lo_qualifies() {
+        val share = EquityCalculator.hiLoIterationShare(
+            hiShare = 1.0, loShare = 0.0,
+            myLoQualified = false, anyOpLoQualified = true,
+        )
+        // 상대가 lo 가져가므로 본인은 hi 절반만 차지.
+        assertThat(share).isEqualTo(0.5)
+    }
+
+    @Test fun hi_lo_share_zero_hi_with_only_op_qualifier() {
+        val share = EquityCalculator.hiLoIterationShare(
+            hiShare = 0.0, loShare = 0.0,
+            myLoQualified = false, anyOpLoQualified = true,
+        )
+        assertThat(share).isEqualTo(0.0)
+    }
 }

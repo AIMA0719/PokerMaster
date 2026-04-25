@@ -138,12 +138,14 @@ class EquityCalculator(private val seed: Long? = null) {
             pos += needForMe
 
             if (hiLoSplit) {
-                // Hi-Lo: hi 점유율 + lo 점유율을 합산하여 0.0~1.0 로 정규화 (간이 모델)
+                // Hi-Lo: 누구라도 lo qualify(8 이하 + no pair) 하면 팟 hi 50%/lo 50% 분할,
+                // 아무도 qualify 못하면 hi 가 팟 100% 차지 (Hi-Lo 표준 룰).
                 val myHi = HandEvaluatorHiLo.evaluateHigh(mySim)
                 val myLo = HandEvaluatorHiLo.evaluateLow(mySim)
-                var hiBetter = 0; var hiTies = 0; var hiWorse = 0
-                var loQualified = myLo != null
-                var loBetter = 0; var loTies = 0; var loWorse = 0
+                var hiBetter = 0; var hiTies = 0
+                val myLoQualified = myLo != null
+                var loBetter = 0; var loTies = 0
+                var anyOpLoQualified = false
 
                 for (opUp in knownOppUpCards) {
                     val opSim = opUp + deckArr.subList(pos, pos + (7 - opUp.size))
@@ -153,33 +155,37 @@ class EquityCalculator(private val seed: Long? = null) {
                     when {
                         cmpHi > 0 -> hiBetter++
                         cmpHi == 0 -> hiTies++
-                        else -> hiWorse++
+                        else -> { /* hiWorse — 점유율 산출엔 불필요 */ }
                     }
                     val opLo = HandEvaluatorHiLo.evaluateLow(opSim)
-                    if (myLo != null && opLo != null) {
-                        val cmpLo = myLo.compareTo(opLo)
-                        when {
-                            cmpLo < 0 -> loBetter++       // 작을수록 강
-                            cmpLo == 0 -> loTies++
-                            else -> loWorse++
+                    if (opLo != null) anyOpLoQualified = true
+                    when {
+                        myLo != null && opLo != null -> {
+                            val cmpLo = myLo.compareTo(opLo)
+                            when {
+                                cmpLo < 0 -> loBetter++       // 작을수록 강
+                                cmpLo == 0 -> loTies++
+                                else -> { /* loWorse */ }
+                            }
                         }
-                    } else if (myLo != null && opLo == null) {
-                        loBetter++
-                    } else if (myLo == null && opLo != null) {
-                        loWorse++
+                        myLo != null && opLo == null -> loBetter++
+                        // myLo == null: 본인이 lo 자격 없으므로 별도 카운팅 불필요 (loShare=0 으로 처리)
                     }
                 }
-                // 팟 절반은 hi, 절반은 lo. scoop = hi+lo 모두 차지 = 1.0 (정확).
                 val hiShare = if (hiBetter == opponents) 1.0
                               else if (hiBetter + hiTies == opponents) 1.0 / (hiTies + 1)
                               else 0.0
-                val loShare = if (loQualified) {
+                val loShare = if (myLoQualified) {
                     if (loBetter == opponents) 1.0
                     else if (loBetter + loTies == opponents) 1.0 / (loTies + 1)
                     else 0.0
                 } else 0.0
-                // hi 0.5 + lo 0.5 가중치 — scoop 시 0.5 + 0.5 = 1.0 (전체 팟)
-                sum += hiShare * 0.5 + loShare * 0.5
+                sum += hiLoIterationShare(
+                    hiShare = hiShare,
+                    loShare = loShare,
+                    myLoQualified = myLoQualified,
+                    anyOpLoQualified = anyOpLoQualified,
+                )
             } else {
                 val myValue = HandEvaluator7Stud.evaluateBest(mySim)
                 var bestOpp: HandValue = HandValue.MIN
@@ -238,6 +244,29 @@ class EquityCalculator(private val seed: Long? = null) {
             if (j != i) {
                 val tmp = arr[i]; arr[i] = arr[j]; arr[j] = tmp
             }
+        }
+    }
+
+    internal companion object {
+        /**
+         * Hi-Lo 한 시뮬 iteration 의 본인 점유율.
+         *
+         *  - 누구라도(본인 또는 상대) lo qualify 하면 팟 hi 50%/lo 50% 분할: hi*0.5 + lo*0.5.
+         *  - 아무도 lo qualify 못 하면 팟 분할 자체가 일어나지 않으므로 hi 가 100%: hi.
+         *
+         *  M7-BugFix: 이전엔 myLo == null 일 때 loShare=0 + 가중치 0.5 로 hi 점유율의 절반만 계상해
+         *  hi-only 시나리오에서 equity 가 절반으로 깎였다. 누구도 lo 자격을 얻지 못하는 시뮬에선
+         *  팟 분할 자체가 없어야 한다.
+         */
+        @JvmStatic
+        internal fun hiLoIterationShare(
+            hiShare: Double,
+            loShare: Double,
+            myLoQualified: Boolean,
+            anyOpLoQualified: Boolean,
+        ): Double {
+            val anyLoQualified = myLoQualified || anyOpLoQualified
+            return if (anyLoQualified) hiShare * 0.5 + loShare * 0.5 else hiShare
         }
     }
 }

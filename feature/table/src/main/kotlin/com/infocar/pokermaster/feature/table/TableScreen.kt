@@ -191,7 +191,6 @@ fun TableScreen(
     val sfxPolicy by settingsRepo.sfxPolicy.collectAsState(initial = SfxPolicy.Default)
 
     val onHumanActionWithSfx: OnAction = { action ->
-        android.util.Log.i("TableScreen", "human tap: ${action.type} amount=${action.amount}")
         if (sfxPolicy.hapticEnabled) {
             when (action.type) {
                 ActionType.RAISE, ActionType.ALL_IN, ActionType.BET,

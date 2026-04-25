@@ -64,7 +64,10 @@ class ManifestFetcher(
 
     private fun fetchBytes(urlString: String): FetchOutcome {
         val url = URL(urlString)
-        val conn = url.openConnection() as HttpURLConnection
+        // M7-BugFix: 프록시/VPN 환경에서 비-HTTP URL handler 가 등록돼 ClassCastException 으로
+        // crash 하던 케이스 방어. 잘못된 URL 은 NetworkFailure 로 정상 전파.
+        val conn = url.openConnection() as? HttpURLConnection
+            ?: return FetchOutcome.Net(IllegalStateException("URL handler is not HTTP: $urlString"))
         return try {
             conn.connectTimeout = httpTimeoutMs
             conn.readTimeout = httpTimeoutMs

@@ -2,6 +2,7 @@ package com.infocar.pokermaster.core.data.di
 
 import android.content.Context
 import androidx.room.Room
+import com.infocar.pokermaster.core.data.ALL_MIGRATIONS
 import com.infocar.pokermaster.core.data.PokerMasterDatabase
 import com.infocar.pokermaster.core.data.history.HandHistoryDao
 import com.infocar.pokermaster.core.data.history.HandHistoryRepository
@@ -33,8 +34,10 @@ object DataModule {
             PokerMasterDatabase::class.java,
             PokerMasterDatabase.NAME,
         )
-            // M5-A: schema v1 — migration 은 v2 진입 시 작성. Room 2.6.1 의 no-arg 호출.
-            .fallbackToDestructiveMigration()
+            // M7: 정식 upgrade 경로는 Migrations.kt. downgrade(테스트 빌드 등) 만 destructive
+            // fallback — 사용자 데이터 보존이 기본 가정.
+            .addMigrations(*ALL_MIGRATIONS)
+            .fallbackToDestructiveMigrationOnDowngrade()
             .build()
 
     @Provides

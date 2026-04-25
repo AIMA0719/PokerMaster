@@ -53,7 +53,10 @@ object RangeDownloader {
             return@withContext Outcome.Completed
         }
 
-        val conn = (URL(url).openConnection() as HttpURLConnection)
+        // M7-BugFix: 프록시/VPN 환경에서 비-HTTP URL handler 가 등록되면 cast 가 ClassCastException 으로
+        // 죽었다. 잘못된 URL 은 Outcome.Network 로 정상 전파.
+        val conn = URL(url).openConnection() as? HttpURLConnection
+            ?: return@withContext Outcome.Network(IllegalStateException("URL handler is not HTTP: $url"))
         // 코루틴 취소 시 즉시 connection 을 끊어 stalled read 를 풀어준다.
         // (read 안에 갇혀 있으면 ensureActive 가 못 끼어든다 → 사용자 "취소" 가 readTimeout 까지 지연됨.)
         val cancelHandle = currentCoroutineContext()[Job]?.invokeOnCompletion {

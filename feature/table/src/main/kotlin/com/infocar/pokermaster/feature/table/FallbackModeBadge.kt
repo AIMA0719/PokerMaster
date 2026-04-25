@@ -67,7 +67,7 @@ fun FallbackModeBadge(
         ) {
             Icon(
                 imageVector = Icons.Default.SmartToy,
-                contentDescription = null,
+                contentDescription = stringResource(id = R.string.badge_fallback_ai),
                 tint = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.75f),
                 modifier = Modifier.padding(0.dp),
             )

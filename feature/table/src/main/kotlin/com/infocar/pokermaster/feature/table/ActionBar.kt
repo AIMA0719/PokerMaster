@@ -14,6 +14,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -158,6 +160,9 @@ private fun ActionButton(
     val gradient = if (enabled) Brush.verticalGradient(listOf(tint, tintDark))
     else Brush.verticalGradient(listOf(HangameColors.BtnDisabled, HangameColors.BtnDisabled))
 
+    // M7-BugFix: 빠른 연타로 같은 액션이 두 번 디스패치되는 것 방어. 350ms throttle.
+    val lastTapAt = remember { mutableLongStateOf(0L) }
+
     Box(
         modifier = modifier
             .fillMaxWidth()
@@ -172,7 +177,13 @@ private fun ActionButton(
                 RoundedCornerShape(8.dp),
             )
             .pointerInput(enabled) {
-                if (enabled) detectTapGestures(onTap = { onClick() })
+                if (enabled) detectTapGestures(onTap = {
+                    val now = System.currentTimeMillis()
+                    if (now - lastTapAt.longValue >= ACTION_TAP_THROTTLE_MS) {
+                        lastTapAt.longValue = now
+                        onClick()
+                    }
+                })
             }
             .semantics { contentDescription = a11y },
         contentAlignment = Alignment.Center,
@@ -205,6 +216,9 @@ private fun clampRaise(state: ActionBarState, raw: Long): Long =
 
 internal fun safeCoerceIn(value: Long, min: Long, max: Long): Long =
     if (min > max) max else value.coerceIn(min, max)
+
+/** ActionBar 버튼 디바운스 시간 (ms). 빠른 더블탭/연타 방지. */
+private const val ACTION_TAP_THROTTLE_MS = 350L
 
 // -----------------------------------------------------------------------------
 // Previews

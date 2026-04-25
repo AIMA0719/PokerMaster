@@ -123,7 +123,7 @@ internal object HandEval {
                 }
             }
         }
-        return best!!
+        return checkNotNull(best) { "bestFiveOfSeven inner loop produced no candidate (size=${seven.size})" }
     }
 }
 

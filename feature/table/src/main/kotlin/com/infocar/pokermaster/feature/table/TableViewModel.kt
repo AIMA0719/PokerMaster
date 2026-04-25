@@ -136,10 +136,8 @@ class TableViewModel private constructor(
         val repo = walletRepo ?: return
         val scope = historyScope ?: return
         val finalChips = _state.value.players.firstOrNull { it.isHuman }?.chips ?: 0L
-        android.util.Log.i("TableVM", "settleAndClose async: finalChips=$finalChips")
         scope.launch(kotlinx.coroutines.NonCancellable) {
             runCatching { repo.settle(finalChips) }
-                .onSuccess { android.util.Log.i("TableVM", "settle async done: $finalChips") }
                 .onFailure { android.util.Log.w("TableVM", "settle async failed", it) }
         }
     }
@@ -153,13 +151,11 @@ class TableViewModel private constructor(
         settled = true
         val repo = walletRepo ?: return
         val finalChips = _state.value.players.firstOrNull { it.isHuman }?.chips ?: 0L
-        android.util.Log.i("TableVM", "settleAndCloseAwait: finalChips=$finalChips")
         runCatching {
             kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
                 repo.settle(finalChips)
             }
-        }.onSuccess { android.util.Log.i("TableVM", "settle await done: $finalChips") }
-            .onFailure { android.util.Log.w("TableVM", "settle await failed", it) }
+        }.onFailure { android.util.Log.w("TableVM", "settle await failed", it) }
     }
 
     override fun onCleared() {
@@ -171,10 +167,6 @@ class TableViewModel private constructor(
     // ---------------------------------------------------------------- Actions
 
     fun onHumanAction(action: Action) {
-        android.util.Log.i(
-            "TableVM",
-            "onHumanAction(${action.type} amount=${action.amount}) toAct=${_state.value.toActSeat} street=${_state.value.street}",
-        )
         val s = _state.value
         val seat = s.toActSeat
         if (seat == null) {
