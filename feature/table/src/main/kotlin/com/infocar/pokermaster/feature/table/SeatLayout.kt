@@ -480,9 +480,22 @@ private fun MiniSeatCards(
     }
     val w = (cardWidth.value * factor).dp
     val h = (cardHeight.value * factor).dp
+    // M7: 새 카드 등장 시 fadeIn + slideIn (위→아래) — 4-7th street 업카드 인스턴트 등장 회피.
+    val reduceMotion = LocalReduceMotion.current
+    val cardDuration = if (reduceMotion) 0 else DealAnimationSpec.HOLE_CARD_DURATION_MS
     Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
         for (card in cards) {
-            PlayingCard(card = card, faceDown = false, width = w, height = h)
+            val visibleState = remember(card) {
+                MutableTransitionState(false).apply { targetState = true }
+            }
+            AnimatedVisibility(
+                visibleState = visibleState,
+                enter = slideInVertically(
+                    animationSpec = tween(cardDuration, easing = FastOutSlowInEasing),
+                ) { -it } + fadeIn(animationSpec = tween(cardDuration)),
+            ) {
+                PlayingCard(card = card, faceDown = false, width = w, height = h)
+            }
         }
     }
 }
