@@ -408,6 +408,7 @@ internal fun TableContent(
                 WinnerBanner(
                     data = handEndData,
                     humanSeat = humanSeat,
+                    mode = state.mode,
                     autoNextCountdown = autoNextCountdown,
                     modifier = Modifier
                         .align(Alignment.TopCenter)
@@ -861,6 +862,7 @@ private fun DealingPrepBadge(modifier: Modifier = Modifier) {
 private fun WinnerBanner(
     data: HandEndViewData,
     humanSeat: Int,
+    mode: GameMode,
     autoNextCountdown: Int?,
     modifier: Modifier = Modifier,
 ) {
@@ -874,6 +876,11 @@ private fun WinnerBanner(
         .mapNotNull { data.nicknameBySeat[it] }
         .joinToString(", ")
         .ifEmpty { null }
+    // HiLo split 감지: hi/lo 양쪽 승자 존재 + 동일하지 않을 때.
+    val isHiLoSplit = mode == GameMode.SEVEN_STUD_HI_LO &&
+        firstPot.hiWinnerSeats.isNotEmpty() &&
+        firstPot.loWinnerSeats.isNotEmpty() &&
+        firstPot.hiWinnerSeats != firstPot.loWinnerSeats
 
     val glow = pulseFloat(initial = 0.55f, target = 1f, periodMs = 850, label = "winner-glow")
 
@@ -905,15 +912,36 @@ private fun WinnerBanner(
                 ) {
                     Text(text = "🏆", fontSize = 26.sp)
                     Text(
-                        text = if (isHumanWinner) {
-                            stringResource(id = R.string.winner_you_win)
-                        } else {
-                            stringResource(id = R.string.winner_name_wins, winnerName)
+                        text = when {
+                            isHiLoSplit -> "하이/로우 분할"
+                            isHumanWinner -> stringResource(id = R.string.winner_you_win)
+                            else -> stringResource(id = R.string.winner_name_wins, winnerName)
                         },
                         fontSize = 22.sp,
                         color = HangameColors.PotValue,
                         fontWeight = FontWeight.Black,
                     )
+                }
+                // HiLo split 시 hi/lo 라벨 row 추가 — Hi 오렌지 / Lo 시안 한 줄.
+                if (isHiLoSplit) {
+                    val hiNames = firstPot.hiWinnerSeats
+                        .mapNotNull { data.nicknameBySeat[it] }.joinToString(", ")
+                    val loNames = firstPot.loWinnerSeats
+                        .mapNotNull { data.nicknameBySeat[it] }.joinToString(", ")
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text(
+                            text = "Hi · $hiNames",
+                            fontSize = 12.sp,
+                            color = HangameColors.HiLoHiBadge,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        Text(
+                            text = "Lo · $loNames",
+                            fontSize = 12.sp,
+                            color = HangameColors.HiLoLoBadge,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                    }
                 }
                 if (isHumanWinner) {
                     Text(

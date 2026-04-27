@@ -36,9 +36,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.infocar.pokermaster.core.model.Card
+import com.infocar.pokermaster.core.model.GameMode
 import com.infocar.pokermaster.core.model.PotSummary
 import com.infocar.pokermaster.core.model.Rank
 import com.infocar.pokermaster.core.model.Suit
+import com.infocar.pokermaster.core.ui.theme.HangameColors
 import com.infocar.pokermaster.core.ui.theme.PokerColors
 import com.infocar.pokermaster.core.ui.theme.PokerMasterTheme
 import kotlinx.coroutines.delay
@@ -58,6 +60,12 @@ fun HandEndSheet(
     onNext: () -> Unit,
     onInsights: () -> Unit,
     autoNextCountdown: Int? = null,
+    /**
+     * 현재 모드. HiLo 모드일 때 hi/lo 사이드 라벨을 강조 (보통 PokerColors.Accent 골드 + Stud lime/cyan).
+     * 기본 HOLDEM_NL — 기존 호출자 호환 (TableScreen 이 명시적으로 mapHandEnd 사용 시 mode 파라미터를
+     * 새로 전달).
+     */
+    mode: GameMode = GameMode.HOLDEM_NL,
     modifier: Modifier = Modifier,
 ) {
     // 시트 자체 등장 애니메이션.
@@ -79,11 +87,19 @@ fun HandEndSheet(
     val firstWinnerSeat = firstPot?.winnerSeats?.firstOrNull()
     val winnerName = firstWinnerSeat?.let { data.nicknameBySeat[it] } ?: "-"
     val winnerCategory = firstWinnerSeat?.let { data.handInfos[it] } ?: ""
-    val headerText = if (firstWinnerSeat != null) {
-        val baseSingle = stringResource(id = R.string.hand_end_single_winner, winnerName)
-        if (winnerCategory.isNotEmpty()) "$baseSingle — $winnerCategory" else baseSingle
-    } else {
-        stringResource(id = R.string.hand_end_winner)
+    val isHiLo = mode == GameMode.SEVEN_STUD_HI_LO
+    // HiLo 모드에서 첫 팟이 hi+lo 분리 승자라면 헤더를 split 표기로.
+    val isSplit = isHiLo && firstPot != null &&
+        firstPot.hiWinnerSeats.isNotEmpty() &&
+        firstPot.loWinnerSeats.isNotEmpty() &&
+        firstPot.hiWinnerSeats != firstPot.loWinnerSeats
+    val headerText = when {
+        firstWinnerSeat == null -> stringResource(id = R.string.hand_end_winner)
+        isSplit -> "하이/로우 분할"
+        else -> {
+            val baseSingle = stringResource(id = R.string.hand_end_single_winner, winnerName)
+            if (winnerCategory.isNotEmpty()) "$baseSingle — $winnerCategory" else baseSingle
+        }
     }
 
     AnimatedVisibility(
@@ -106,13 +122,46 @@ fun HandEndSheet(
                     .padding(horizontal = 16.dp, vertical = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                // 1. 헤더
-                Text(
-                    text = headerText,
-                    style = MaterialTheme.typography.titleMedium,
-                    color = PokerColors.Accent,
-                    fontWeight = FontWeight.Bold,
-                )
+                // 1. 헤더 — 한게임 톤. 골드 큰 라벨 + 한국어 hand category 부제.
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(
+                        text = headerText,
+                        style = MaterialTheme.typography.titleMedium,
+                        color = HangameColors.PotValue,
+                        fontWeight = FontWeight.Black,
+                    )
+                    if (winnerCategory.isNotEmpty() && !isSplit) {
+                        // 단독 승자 카테고리는 헤더 옆에 이미 em-dash 로 들어가지만, 7-stud 의
+                        // "백스트레이트", "백 SF" 같은 한국식 카테고리는 짧게 한 번 더 강조.
+                        Text(
+                            text = winnerCategory,
+                            style = MaterialTheme.typography.labelMedium,
+                            color = HangameColors.TextLime,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                    }
+                    if (isSplit) {
+                        // HiLo split: hi/lo 별 승자 닉네임을 한 줄로 명시.
+                        val hiNames = firstPot!!.hiWinnerSeats
+                            .mapNotNull { data.nicknameBySeat[it] }.joinToString(", ")
+                        val loNames = firstPot.loWinnerSeats
+                            .mapNotNull { data.nicknameBySeat[it] }.joinToString(", ")
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text(
+                                text = "Hi · $hiNames",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = HangameColors.HiLoHiBadge,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                            Text(
+                                text = "Lo · $loNames",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = HangameColors.HiLoLoBadge,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                        }
+                    }
+                }
 
                 // 2. 팟 시퀀스 (컴팩트)
                 data.pots.take(revealedPots).forEach { pot ->
@@ -169,9 +218,10 @@ fun HandEndSheet(
                 ) {
                     Button(
                         onClick = onNext,
+                        // 48dp 유지 (a11y hit target). Hangame call green 으로 통일.
                         modifier = Modifier.weight(1f).height(48.dp),
                         colors = ButtonDefaults.buttonColors(
-                            containerColor = PokerColors.Primary,
+                            containerColor = HangameColors.BtnCall,
                             contentColor = Color.White,
                         ),
                     ) {
