@@ -35,8 +35,9 @@ class SettingsViewModel @Inject constructor(
             settingsRepo.a11ySettings,
             settingsRepo.guideSettings,
             settingsRepo.themeMode,
-        ) { sfx, a11y, guide, theme ->
-            SettingsUiState(sfx, a11y, guide, theme, loaded = true)
+            settingsRepo.useImageCards,
+        ) { sfx, a11y, guide, theme, useImages ->
+            SettingsUiState(sfx, a11y, guide, theme, useImageCards = useImages, loaded = true)
         }
             .stateIn(
                 scope = viewModelScope,
@@ -85,6 +86,10 @@ class SettingsViewModel @Inject constructor(
         settingsRepo.setThemeMode(mode)
     }
 
+    fun setUseImageCards(enabled: Boolean) = viewModelScope.launch {
+        settingsRepo.setUseImageCards(enabled)
+    }
+
     fun clearAllHistory() = viewModelScope.launch {
         val before = historyRepo.count()
         historyRepo.clear()
@@ -101,5 +106,6 @@ data class SettingsUiState(
     val a11y: A11ySettings = A11ySettings(),
     val guide: GuideSettings = GuideSettings(),
     val themeMode: ThemeMode = ThemeMode.DEFAULT,
+    val useImageCards: Boolean = false,
     val loaded: Boolean = false,
 )

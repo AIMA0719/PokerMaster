@@ -92,6 +92,26 @@ fun PlayingCard(
     width: Dp = 44.dp,
     height: Dp = 64.dp,
 ) {
+    // Opt-in 이미지 카드 모드 — Settings 토글이 켜졌을 때 PNG 자산으로 위임. flip 애니메이션은
+    // 구현 단순화를 위해 이 경로에서는 생략 (faceDown 즉시 전환). placeholder 슬롯은
+    // 두 모드 공통으로 동일한 점선 표현을 사용한다.
+    if (LocalUseImageCards.current) {
+        val semanticsLabel: String = when {
+            faceDown -> A11yStrings.hiddenCard()
+            card == null -> "빈 카드 슬롯"
+            else -> A11yStrings.card(card)
+        }
+        ImageCard(
+            card = card,
+            faceDown = faceDown,
+            modifier = modifier.semantics { contentDescription = semanticsLabel },
+            highlight = highlight,
+            width = width,
+            height = height,
+            contentDescription = null, // a11y label 은 modifier.semantics 로 전달됨
+        )
+        return
+    }
     val gold = Color(0xFFD4AF37)
     // M7-C: Light 모드에서는 포커 그린, Dark 모드에서는 네이비/틸.
     val darkUi = MaterialTheme.colorScheme.background.luminance() < 0.5f
@@ -308,7 +328,7 @@ private fun CardBack(
 }
 
 @Composable
-private fun CardPlaceholder(
+internal fun CardPlaceholder(
     modifier: Modifier,
     cornerRadius: Dp,
     highlight: Boolean,

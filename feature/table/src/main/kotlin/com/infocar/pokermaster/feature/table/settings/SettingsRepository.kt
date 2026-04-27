@@ -66,6 +66,15 @@ class SettingsRepository @Inject constructor(
         ThemeMode.fromStorage(prefs[Keys.ThemeMode])
     }
 
+    /**
+     * UI-Images: opt-in 이미지 카드 모드. 기본 false → 기존 Canvas/Text 자체 렌더 유지.
+     * true 면 [com.infocar.pokermaster.feature.table.LocalUseImageCards] 가 활성화되어
+     * PlayingCard 가 PNG 자산을 그린다.
+     */
+    val useImageCards: Flow<Boolean> = store.data.map { prefs ->
+        prefs[Keys.UseImageCards] ?: false
+    }
+
     suspend fun setSfxPolicy(policy: SfxPolicy) {
         store.edit {
             it[Keys.SoundEnabled] = policy.soundEnabled
@@ -94,6 +103,10 @@ class SettingsRepository @Inject constructor(
         store.edit { it[Keys.ThemeMode] = mode.name }
     }
 
+    suspend fun setUseImageCards(enabled: Boolean) {
+        store.edit { it[Keys.UseImageCards] = enabled }
+    }
+
     private object Keys {
         val SoundEnabled = booleanPreferencesKey("sfx.sound_enabled")
         val HapticEnabled = booleanPreferencesKey("sfx.haptic_enabled")
@@ -105,5 +118,6 @@ class SettingsRepository @Inject constructor(
         val GuideEnabled = booleanPreferencesKey("guide.mode_enabled")
         val SeenWelcome = booleanPreferencesKey("guide.seen_welcome")
         val ThemeMode = stringPreferencesKey("ui.theme_mode")
+        val UseImageCards = booleanPreferencesKey("ui.use_image_cards")
     }
 }
