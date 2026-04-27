@@ -21,7 +21,7 @@ class ShowdownResolverTest {
         HandValue(category, tiebreakers.toList(), emptyList())
 
     private fun lv(vararg desc: Int) =
-        LowValue(desc.toList(), emptyList())
+        LowValue(category = 0, tiebreakersDesc = desc.toList(), cards = emptyList())
 
     // ---------- High-only ----------
     @Test fun single_winner_takes_all() {

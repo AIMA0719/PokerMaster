@@ -18,7 +18,8 @@ class AuditEdgeCasesTest {
     private fun hv(category: HandCategory, vararg tiebreakers: Int) =
         HandValue(category, tiebreakers.toList(), emptyList())
 
-    private fun lv(vararg desc: Int) = LowValue(desc.toList(), emptyList())
+    private fun lv(vararg desc: Int) =
+        LowValue(category = 0, tiebreakersDesc = desc.toList(), cards = emptyList())
 
     // ============================================================================================
     // Wheel 평가

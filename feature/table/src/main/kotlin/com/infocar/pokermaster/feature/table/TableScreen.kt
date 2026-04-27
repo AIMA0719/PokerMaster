@@ -572,8 +572,32 @@ private fun MultiSeatLayout(
     @Composable
     fun seat(player: PlayerState) {
         val payout = state.pendingShowdown?.payouts?.get(player.seat)?.takeIf { it > 0L }
+        val viewerPlayer = TableUiMapper.mapPlayerForViewer(player, humanSeat, state.street)
+        val declared = state.declarations[player.seat]
+        // DECLARE 단계 중 상대 좌석 인디케이터 — 실 선언이 들어왔으면 lock(잠김), 아직이면 ? (생각 중).
+        val declareIndicator: String? = if (state.street == Street.DECLARE && player.seat != humanSeat) {
+            if (declared != null) "잠김" else "?"
+        } else null
+        // SHOWDOWN/이후: 본인 선언이거나 마스크 해제된 좌석은 한국어 라벨로 노출.
+        val declarationBadge: String? = when {
+            declareIndicator != null -> declareIndicator
+            else -> when (declared) {
+                Declaration.HIGH -> "하이"
+                Declaration.LOW -> "로우"
+                Declaration.SWING -> "스윙"
+                null -> null
+            }
+        }
+        // extraBadge 와 declarationBadge 를 한 줄에 합치되 — extraBadge 가 우선이면 둘 다 표시.
+        val mergedBadge: String? = when {
+            seatBadges[player.seat] != null && declarationBadge != null ->
+                "${seatBadges[player.seat]} · $declarationBadge"
+            seatBadges[player.seat] != null -> seatBadges[player.seat]
+            declarationBadge != null -> declarationBadge
+            else -> null
+        }
         PlayerSeat(
-            player = player,
+            player = viewerPlayer,
             isBtn = player.seat == state.btnSeat,
             isSb = sbSeat != null && player.seat == sbSeat,
             isBb = bbSeat != null && player.seat == bbSeat,
@@ -585,7 +609,7 @@ private fun MultiSeatLayout(
             winnerPayout = payout,
             dealOrderIndex = sortedBySeat.indexOfFirst { it.seat == player.seat }.coerceAtLeast(0),
             totalActiveSeats = totalActiveSeats,
-            extraBadgeLabel = seatBadges[player.seat],
+            extraBadgeLabel = mergedBadge,
         )
     }
 
@@ -675,8 +699,12 @@ private fun MultiSeatLayout(
         }
         else -> {
             // 5+ 인 — 기존 angle 기반 폴백 (centerContent 는 별도 처리 필요).
+            // HiLo UI: DECLARE 단계 동안 viewer 가 아닌 좌석의 declaration 을 마스킹.
+            val maskedPlayers = state.players.map {
+                TableUiMapper.mapPlayerForViewer(it, humanSeat, state.street)
+            }
             SeatLayout(
-                players = state.players,
+                players = maskedPlayers,
                 btnSeat = state.btnSeat,
                 toActSeat = state.toActSeat,
                 humanSeat = humanSeat,

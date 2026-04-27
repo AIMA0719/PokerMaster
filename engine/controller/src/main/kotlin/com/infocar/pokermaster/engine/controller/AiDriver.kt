@@ -126,12 +126,11 @@ class AiDriver(
      * 7-Stud Hi-Lo 한국식 declare 휴리스틱.
      *
      *  보수적 룰:
-     *  - 7장(hole+up) 으로 hi 카테고리 + lo 자격(8-or-better) 평가.
-     *  - lo 자격 + hi >= STRAIGHT → SWING (정말 강할 때만).
-     *  - lo 자격만 + hi <= ONE_PAIR → LOW (lo 만 노림).
-     *  - lo 자격 + hi 가 TWO_PAIR/THREE_OF_A_KIND → LOW (양방향 충돌 위험 회피, lo 만 안전).
-     *  - lo 자격 없음 + hi 강함 (>= TWO_PAIR) → HIGH.
-     *  - 그 외 (lo 자격 없음 + hi 약함) → HIGH (디폴트, 최소 1자리 노림).
+     *  - 7장(hole+up) 으로 hi 카테고리 + 한국식 lo 강도 평가.
+     *  - 무페어 8-low 이하 + hi >= STRAIGHT → SWING (정말 강할 때만).
+     *  - 무페어 8-low 이하 → LOW.
+     *  - lo 가 약하고 hi >= TWO_PAIR → HIGH.
+     *  - 그 외 → HIGH (디폴트, 최소 1자리 노림).
      *
      *  7장 미만(이상-드문) 케이스는 디폴트 HIGH.
      */
@@ -144,12 +143,13 @@ class AiDriver(
         }
         val hi = HandEvaluatorHiLo.evaluateHigh(seven)
         val lo = HandEvaluatorHiLo.evaluateLow(seven)
-        val hasLo = lo != null
+        val lowTop = lo.tiebreakersDesc.firstOrNull() ?: Int.MAX_VALUE
+        val loStrong = lo.category == 0 && lowTop <= 8
         val hiStrong = hi.category.strength >= HandCategory.STRAIGHT.strength
         val hiMid = hi.category.strength >= HandCategory.TWO_PAIR.strength
         val declaration = when {
-            hasLo && hiStrong -> Declaration.SWING
-            hasLo -> Declaration.LOW
+            loStrong && hiStrong -> Declaration.SWING
+            loStrong -> Declaration.LOW
             hiMid -> Declaration.HIGH
             else -> Declaration.HIGH
         }

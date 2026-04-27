@@ -258,8 +258,9 @@ class HoldemReducerTest {
      *  1. BTN 가 200 으로 풀 raise (lastFullRaise=150, betToCall=200).
      *  2. SB 가 칩 부족 상태에서 less-than-min-raise all-in (예: 250 = 50 raise; 50 < 150 → not full).
      *  3. reopenAction false 가 됨.
-     *  4. BB(=초기 act 안 함)가 RAISE 시도 → applyBetOrRaise 진입 후 reopenAction false 분기 →
-     *     betToCall > committedThisStreet 이면 CALL 로 강등.
+     *  4. BB(=초기 act 안 함)는 full raise 가능해야 함. 여기서는 CALL 로 맞춘다.
+     *  5. 이미 액션했던 BTN 이 다시 RAISE 시도 → reopenAction false + actedThisStreet true 이므로
+     *     CALL 로 강등.
      */
     @Test fun all_in_less_than_min_raise_demotes_subsequent_raise_to_call() {
         val cfg = config.copy(seats = 3)
@@ -294,18 +295,24 @@ class HoldemReducerTest {
         val betAfterSbAllIn = s.betToCall
         assertThat(betAfterSbAllIn).isEqualTo(250L)
 
-        // 3) BB(=2) tries RAISE → reopenAction false → call 로 강등.
+        // 3) BB(=2)는 아직 액션 전이므로 full raise 권리가 남아 있다. 여기서는 콜로 맞춘다.
         assertThat(s.toActSeat).isEqualTo(2)
-        val bbBefore = s.players[2].committedThisStreet
-        s = HoldemReducer.act(s, 2, Action(ActionType.RAISE, 1000L), rng)
-        val bbAfter = s.players[2]
-        // betToCall 변경 안 됨 — raise 가 강등되어 진행 안 됨.
+        s = HoldemReducer.act(s, 2, Action(ActionType.CALL), rng)
         assertThat(s.betToCall).isEqualTo(betAfterSbAllIn)
-        // BB 가 committed 한 칩은 250(=call 매칭) 이며 1000 raise 금액에 도달하지 않음.
-        assertThat(bbAfter.committedThisStreet).isEqualTo(250L)
-        assertThat(bbAfter.committedThisStreet - bbBefore).isLessThan(1000L)
+        assertThat(s.players[2].committedThisStreet).isEqualTo(250L)
+
+        // 4) 이미 액션했던 BTN(=0)이 다시 RAISE 시도 → short all-in 이 action 을 reopen 하지 않았으므로 CALL 강등.
+        assertThat(s.toActSeat).isEqualTo(0)
+        val btnBefore = s.players[0].committedThisStreet
+        s = HoldemReducer.act(s, 0, Action(ActionType.RAISE, 1000L), rng)
+        val btnAfter = s.players[0]
+        // raise 가 CALL 로 강등되어 250 매칭 후 라운드가 끝나 FLOP 으로 전진한다.
+        assertThat(s.street).isEqualTo(Street.FLOP)
+        assertThat(s.betToCall).isEqualTo(0L)
+        assertThat(btnAfter.committedThisHand).isEqualTo(250L)
+        assertThat(btnAfter.committedThisHand - btnBefore).isEqualTo(50L)
         // raise 가 강등되었으므로 lastAggressorSeat 갱신 안 됨 (BTN=0 또는 SB=1 그대로 유지 가능 —
         // applyCall 은 lastAggressor 변경 안 함).
-        assertThat(s.lastAggressorSeat).isNotEqualTo(2)
+        assertThat(s.lastAggressorSeat).isNotEqualTo(0)
     }
 }

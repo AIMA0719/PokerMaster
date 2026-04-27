@@ -4,10 +4,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import com.infocar.pokermaster.core.model.Action
 import com.infocar.pokermaster.core.model.Card
+import com.infocar.pokermaster.core.model.Declaration
 import com.infocar.pokermaster.core.model.GameMode
 import com.infocar.pokermaster.core.model.GameState
 import com.infocar.pokermaster.core.model.PlayerState
 import com.infocar.pokermaster.core.model.PotSummary
+import com.infocar.pokermaster.core.model.Street
 
 /**
  * 테이블 하위 컴포넌트들이 합의하는 UI 계약.
@@ -31,6 +33,8 @@ interface ActionBarState {
     val myChips: Long
     /** 7스터드/HiLo 에서 콜 봉착 시 노출되는 "구사" (SAVE_LIFE) 옵션. 홀덤은 항상 false. */
     val canSaveLife: Boolean get() = false
+    /** Street.DECLARE 시 true. ActionBar 가 [하이][로우][양방향] 모드로 렌더링. */
+    val isDeclarePhase: Boolean get() = false
 }
 
 /** 핸드 종료 바텀시트에 표현되는 사이드팟 시퀀스. (Agent B) */
@@ -41,6 +45,9 @@ data class HandEndViewData(
     val payoutsBySeat: Map<Int, Long>,
     val uncalledBySeat: Map<Int, Long>,
     val nicknameBySeat: Map<Int, String>,
+    /** 좌석별 선언. SHOWDOWN 시점이라 모두 visible. 비-HiLo 모드는 emptyMap. */
+    val declarationsBySeat: Map<Int, Declaration> = emptyMap(),
+    val mode: GameMode = GameMode.HOLDEM_NL,
 )
 
 /** 전체 테이블 상태 → UI 뷰데이터로 변환. TableScreen 이 호출. */
@@ -48,6 +55,10 @@ object TableUiMapper {
 
     fun mapHandEnd(state: GameState): HandEndViewData? {
         val s = state.pendingShowdown ?: return null
+        val declarations: Map<Int, Declaration> =
+            if (state.mode == GameMode.SEVEN_STUD_HI_LO) {
+                state.declarations
+            } else emptyMap()
         return HandEndViewData(
             pots = s.pots,
             handInfos = s.bestHands.mapValues { it.value.categoryName },
@@ -55,6 +66,8 @@ object TableUiMapper {
             payoutsBySeat = s.payouts,
             uncalledBySeat = s.uncalledReturn,
             nicknameBySeat = state.players.associate { it.seat to it.nickname },
+            declarationsBySeat = declarations,
+            mode = state.mode,
         )
     }
 
@@ -62,7 +75,26 @@ object TableUiMapper {
         if (state.pendingShowdown != null) return null
         if (state.toActSeat != humanSeat) return null
         val me = state.players.firstOrNull { it.seat == humanSeat } ?: return null
+
+        if (state.street == Street.DECLARE) {
+            if (!me.alive) return null
+            return object : ActionBarState {
+                override val canCheck = false
+                override val canCall = false
+                override val callAmount = 0L
+                override val canRaise = false
+                override val minRaiseTotal = 0L
+                override val maxRaiseTotal = 0L
+                override val currentCommitted = me.committedThisStreet
+                override val potSize = state.players.sumOf { it.committedThisHand }
+                override val myChips = me.chips
+                override val canSaveLife = false
+                override val isDeclarePhase = true
+            }
+        }
+
         if (!me.active) return null
+
         val toCall = (state.betToCall - me.committedThisStreet).coerceAtLeast(0L)
         val myMaxCommit = me.committedThisStreet + me.chips
         val isStud = state.mode == GameMode.SEVEN_STUD || state.mode == GameMode.SEVEN_STUD_HI_LO
@@ -83,6 +115,11 @@ object TableUiMapper {
 
     fun totalPot(state: GameState): Long =
         state.players.sumOf { it.committedThisHand }
+
+    /**
+     * 선언 값은 [GameState.declarations] 에 저장된다. 이 함수는 기존 호출부 호환용 identity mapper.
+     */
+    fun mapPlayerForViewer(player: PlayerState, viewerSeat: Int, street: Street): PlayerState = player
 }
 
 /** 게임 오버 정보 (한 명만 칩 보유 시). */
