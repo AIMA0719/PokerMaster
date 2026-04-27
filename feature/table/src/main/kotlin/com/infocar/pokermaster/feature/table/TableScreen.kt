@@ -655,7 +655,8 @@ private fun CenterPotDisplay(pot: Long, modifier: Modifier = Modifier) {
         verticalArrangement = Arrangement.spacedBy(1.dp),
     ) {
         Text(
-            text = "Total",
+            // 한게임 톤: 영문 "Total" 대신 짧은 한글 "총 팟" — 모드 무관 (모든 GameMode 공통).
+            text = "총 팟",
             fontSize = 10.sp,
             color = HangameColors.PotLabel,
             fontWeight = FontWeight.SemiBold,
@@ -679,56 +680,107 @@ private fun CenterPotDisplay(pot: Long, modifier: Modifier = Modifier) {
 }
 
 /**
- * 7스터드 스트릿 라벨 — community row 자리에 "3rd street" 등 표기.
+ * 7스터드 스트릿 라벨 — community row 자리에 한국식 표기.
+ *
+ * 한게임 풍 톤: "3구/4구/5구/6구/7구" 가 한국 7포커에서 더 친숙. 영문 "3rd street" 보다
+ * 화면 폭 절약 + 즉시 인지. 부제로 영문 표기를 작게 병기 (학습용).
  */
 @Composable
 private fun StreetLabel(street: Street) {
-    val text = when (street) {
-        Street.THIRD -> "3rd street"
-        Street.FOURTH -> "4th street"
-        Street.FIFTH -> "5th street"
-        Street.SIXTH -> "6th street"
-        Street.SEVENTH -> "7th street"
-        Street.SHOWDOWN -> "Showdown"
+    val ko = when (street) {
+        Street.THIRD -> "3구"
+        Street.FOURTH -> "4구"
+        Street.FIFTH -> "5구"
+        Street.SIXTH -> "6구"
+        Street.SEVENTH -> "7구"
+        Street.SHOWDOWN -> "쇼다운"
         else -> "—"
     }
+    val en = when (street) {
+        Street.THIRD -> "3rd"
+        Street.FOURTH -> "4th"
+        Street.FIFTH -> "5th"
+        Street.SIXTH -> "6th"
+        Street.SEVENTH -> "7th"
+        else -> null
+    }
     Surface(
-        shape = RoundedCornerShape(8.dp),
-        color = HangameColors.HeaderBgRight.copy(alpha = 0.6f),
-        border = BorderStroke(0.5.dp, HangameColors.SeatBorder),
+        shape = RoundedCornerShape(10.dp),
+        color = HangameColors.HeaderBgRight.copy(alpha = 0.7f),
+        border = BorderStroke(0.5.dp, HangameColors.StudAccent.copy(alpha = 0.55f)),
     ) {
-        Text(
-            text = text,
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-            fontSize = 12.sp,
-            color = HangameColors.TextSecondary,
-            fontWeight = FontWeight.SemiBold,
-        )
+        Row(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(5.dp),
+        ) {
+            Text(
+                text = ko,
+                fontSize = 13.sp,
+                color = HangameColors.StudAccent,
+                fontWeight = FontWeight.Black,
+            )
+            if (en != null) {
+                Text(
+                    text = en,
+                    fontSize = 9.sp,
+                    color = HangameColors.TextMuted,
+                    fontWeight = FontWeight.Medium,
+                )
+            }
+        }
     }
 }
 
 /**
  * 우상단 블라인드/베팅 정보 표시.
- *  - 홀덤: "SB 50 | BB 100"
- *  - 7스터드/HiLo: "앤티 10 | 브링인 25"
+ *  - 홀덤: "SB 50 | BB 100"          — 기본 시안 보더
+ *  - 7스터드: "7포커 · 앤티 10 | 브링인 25"  — lime 보더 + 모드 prefix
+ *  - HiLo: "하이로우 · 앤티 10 | 브링인 25"   — lime 보더 + 모드 prefix
+ *
+ * 홀덤 사용자가 같은 잔여 톤에서 헷갈리지 않도록, 7스터드 계열 모드는 좌측에 한국식 모드명
+ * 짧은 prefix 와 lime 보더를 추가. 텍스트 구조 자체는 동일.
  */
 @Composable
 private fun BlindInfoBadge(state: GameState) {
     val isStud = state.mode == GameMode.SEVEN_STUD || state.mode == GameMode.SEVEN_STUD_HI_LO
+    val isHiLo = state.mode == GameMode.SEVEN_STUD_HI_LO
+    val modePrefix = when {
+        isHiLo -> "하이로우"
+        isStud -> "7포커"
+        else -> null
+    }
     val left = if (isStud) "앤티 ${ChipFormat.format(state.config.ante)}"
     else "SB ${ChipFormat.format(state.config.smallBlind)}"
     val right = if (isStud) "브링인 ${ChipFormat.format(state.config.bringIn)}"
     else "BB ${ChipFormat.format(state.config.bigBlind)}"
+    val borderColor = if (isStud) HangameColors.StudAccent.copy(alpha = 0.55f)
+    else HangameColors.SeatBorder
     Surface(
-        shape = RoundedCornerShape(6.dp),
-        color = HangameColors.HeaderBgRight.copy(alpha = 0.8f),
-        border = BorderStroke(0.5.dp, HangameColors.SeatBorder),
+        shape = RoundedCornerShape(8.dp),
+        color = HangameColors.HeaderBgRight.copy(alpha = 0.85f),
+        border = BorderStroke(if (isStud) 1.dp else 0.5.dp, borderColor),
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+            modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
+            if (modePrefix != null) {
+                Text(
+                    text = modePrefix,
+                    fontSize = 11.sp,
+                    color = HangameColors.StudAccent,
+                    fontWeight = FontWeight.Black,
+                    maxLines = 1,
+                    softWrap = false,
+                )
+                Text(
+                    text = "·",
+                    fontSize = 11.sp,
+                    color = HangameColors.TextMuted,
+                )
+            }
             Text(
                 text = left,
                 fontSize = 11.sp,
