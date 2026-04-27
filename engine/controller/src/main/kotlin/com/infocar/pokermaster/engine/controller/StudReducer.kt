@@ -552,20 +552,68 @@ object StudReducer {
         }!!.seat
     }
 
-    /** 4~7th first-to-act: 가장 강한 노출 핸드 (HandValue), 동률 시 최고 up-card (rank then suit desc — ♠ 최강). */
+    /**
+     * 4~7th first-to-act: 가장 강한 노출 핸드 좌석.
+     *
+     *  - 패턴 강도: 포카(4) > 트리플(3) > 투페어(2) > 페어(1) > 하이카드(0).
+     *  - 동률: 그룹 랭크 내림차순(예: 페어 K 페어 7 vs 페어 K 페어 5 → 7 vs 5), 그래도 동률 시 최고 up-card 의
+     *    suit ordinal (♠=3 가장 강).
+     *
+     * **버그 수정 이력**: 기존 구현은 `HandEvaluator7Stud.evaluatePartial(upCards)` 만 호출했는데,
+     * `evaluatePartial` 은 5장 미만 입력에 null 반환 → 4th(2up)/5th(3up)/6th-7th(4up) 모든 스트릿에서
+     * 핸드 평가가 무효화되어 항상 단순 max(rank,suit) fallback 으로 결정. 결과: 노출 페어/트리플/투페어가
+     * 무시되고 단일 high card 좌석이 first-to-act 로 잘못 선정. 본 함수는 1~4장 upcards 에 대해
+     * 직접 패턴을 감지해 정통 7스터드 룰을 만족시킨다.
+     */
     private fun bestExposedSeat(players: List<PlayerState>): Int {
         val candidates = players.filter { it.active && it.upCards.isNotEmpty() }
         if (candidates.isEmpty()) {
             // 모두 all-in/folded — fallback: 살아있는 첫 좌석 (어차피 isBettingRoundComplete 가 즉시 true 처리)
             return players.firstOrNull { !it.folded }?.seat ?: 0
         }
+        // List<Int> 자연 사전식 비교 — 앞쪽 원소 우선. 큰 값이 강함.
         val best = candidates.maxWithOrNull(
-            compareBy<PlayerState>(
-                { p -> HandEvaluator7Stud.evaluatePartial(p.upCards) ?: HandValue.MIN },
-                { p -> p.upCards.maxOf { it.rank.value * 10 + it.suit.ordinal } },
-            )
+            compareBy(LIST_OF_INT_LEX) { p -> exposedStrengthKey(p.upCards) }
         )!!
         return best.seat
+    }
+
+    /**
+     * upCards 1~4장의 노출 핸드 강도 키 (정통 7-card stud first-to-act 결정용).
+     *
+     *  - 패턴 tier: quads(4) > trips(3) > two_pair(2) > pair(1) > high(0)
+     *  - 같은 tier: 그룹 rank 내림차순 (페어/트리플 rank 우선, 키커 다음).
+     *  - 마지막 키: 최고 up-card 의 suit ordinal (♠=3 강, ♣=0 약) — 정통/한국식 동일.
+     *
+     * 5장 이상은 호출자(showdown) 가 [HandEvaluator7Stud.evaluateBest] 사용 — 본 함수 미사용.
+     */
+    internal fun exposedStrengthKey(upCards: List<Card>): List<Int> {
+        if (upCards.isEmpty()) return listOf(-1)
+        val ranks = upCards.map { it.rank.value }
+        // 그룹: count 내림차순, 같은 count 면 rank 내림차순
+        val groups = ranks.groupBy { it }.values
+            .sortedWith(compareByDescending<List<Int>> { it.size }.thenByDescending { it[0] })
+        val sizes = groups.map { it.size }
+        val tier = when {
+            sizes.firstOrNull() == 4 -> 4
+            sizes.firstOrNull() == 3 -> 3
+            sizes.size >= 2 && sizes[0] == 2 && sizes[1] == 2 -> 2
+            sizes.firstOrNull() == 2 -> 1
+            else -> 0
+        }
+        val groupRanks = groups.map { it[0] }    // 각 그룹 대표 rank
+        val maxSuitOrd = upCards.maxOf { it.suit.ordinal }
+        return listOf(tier) + groupRanks + listOf(maxSuitOrd)
+    }
+
+    /** List<Int> 사전식 비교기 — 앞쪽 원소 우선, 길이 동률은 짧은 쪽 = 작음. */
+    private val LIST_OF_INT_LEX: Comparator<List<Int>> = Comparator { a, b ->
+        val n = minOf(a.size, b.size)
+        for (i in 0 until n) {
+            val c = a[i].compareTo(b[i])
+            if (c != 0) return@Comparator c
+        }
+        a.size.compareTo(b.size)
     }
 
     // ------------------------------------------------------- Seat utils (Holdem 과 동일)
