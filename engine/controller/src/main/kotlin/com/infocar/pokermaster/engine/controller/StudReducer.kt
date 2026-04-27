@@ -3,6 +3,7 @@ package com.infocar.pokermaster.engine.controller
 import com.infocar.pokermaster.core.model.Action
 import com.infocar.pokermaster.core.model.ActionType
 import com.infocar.pokermaster.core.model.Card
+import com.infocar.pokermaster.core.model.DeclareDirection
 import com.infocar.pokermaster.core.model.GameMode
 import com.infocar.pokermaster.core.model.GameState
 import com.infocar.pokermaster.core.model.PlayerState
@@ -73,6 +74,8 @@ object StudReducer {
                 folded = !canPlay,
                 allIn = false,
                 actedThisStreet = false,
+                // HiLo: declaration 은 핸드별 — 새 핸드 시작 시 항상 null 로 리셋.
+                declaration = null,
             )
         }
 
@@ -166,6 +169,26 @@ object StudReducer {
         require(state.pendingShowdown == null) { "hand already ended — call ackShowdown and startHand" }
         require(state.toActSeat == seat) { "not seat $seat's turn (toAct=${state.toActSeat})" }
         val player = state.players.first { it.seat == seat }
+
+        // HiLo Declare: DECLARE 단계 분기. alive 만 (allIn 포함) 액션 가능.
+        if (state.street == Street.DECLARE) {
+            require(player.alive) { "player at seat $seat is not alive (cannot declare)" }
+            val direction = when (action.type) {
+                ActionType.DECLARE_HI -> DeclareDirection.HI
+                ActionType.DECLARE_LO -> DeclareDirection.LO
+                ActionType.DECLARE_BOTH -> DeclareDirection.BOTH
+                else -> error("only DECLARE_* actions allowed during Street.DECLARE (got ${action.type})")
+            }
+            return applyDeclare(state, seat, direction)
+        }
+
+        // 비-DECLARE 스트릿: declare 액션 거절.
+        when (action.type) {
+            ActionType.DECLARE_HI, ActionType.DECLARE_LO, ActionType.DECLARE_BOTH ->
+                error("DECLARE_* actions only allowed in Street.DECLARE (street=${state.street})")
+            else -> { /* fall through */ }
+        }
+
         require(player.active) { "player at seat $seat is not active" }
 
         val s0 = when (action.type) {
@@ -176,6 +199,8 @@ object StudReducer {
             ActionType.ALL_IN -> applyAllIn(state, seat)
             ActionType.BRING_IN -> applyCall(state, seat) // 강제 브링인 — 사용자 선택 X, 들어오면 콜로 강등
             ActionType.SAVE_LIFE -> applySaveLife(state, seat) // §3.3.C 한국식 구사 (잠정 사양)
+            ActionType.DECLARE_HI, ActionType.DECLARE_LO, ActionType.DECLARE_BOTH ->
+                error("unreachable — declare guarded above")
         }
 
         if (s0.players.count { !it.folded } == 1) {
@@ -202,12 +227,80 @@ object StudReducer {
                 Street.FOURTH -> Street.FIFTH
                 Street.FIFTH -> Street.SIXTH
                 Street.SIXTH -> Street.SEVENTH
-                Street.SEVENTH ->
+                Street.SEVENTH -> {
+                    // HiLo: 7th 베팅 종료 후 alive ≥ 2 → DECLARE 단계 진입.
+                    val live = cur.players.filter { !it.folded }
+                    if (cur.mode == GameMode.SEVEN_STUD_HI_LO && live.size >= 2) {
+                        return enterDeclareStreet(cur)
+                    }
                     return runShowdown(cur.copy(street = Street.SHOWDOWN, toActSeat = null))
+                }
                 else -> error("unexpected street ${cur.street}")
             }
             cur = advanceToStreet(cur, next, rng)
             if (!isBettingRoundComplete(cur)) return cur
+        }
+    }
+
+    /**
+     * 7th 베팅 종료 후 SEVEN_STUD_HI_LO 모드에서 [Street.DECLARE] 단계 진입.
+     * 모든 alive 좌석을 위해 actedThisStreet/declaration 리셋, betToCall/minRaise 0,
+     * toActSeat = BTN-left clockwise 첫 alive 좌석.
+     */
+    private fun enterDeclareStreet(state: GameState): GameState {
+        val newPlayers = state.players.map { p ->
+            if (p.alive) p.copy(actedThisStreet = false, declaration = null)
+            else p.copy(actedThisStreet = !p.active)
+        }
+        val firstActor = firstAliveSeatFromBtn(state.btnSeat, newPlayers)
+        return state.copy(
+            players = newPlayers,
+            street = Street.DECLARE,
+            toActSeat = firstActor,
+            betToCall = 0L,
+            minRaise = 0L,
+            reopenAction = false,
+            lastFullRaiseAmount = 0L,
+            lastAggressorSeat = null,
+            raisesThisStreet = 0,
+            stateVersion = state.stateVersion + 1,
+        )
+    }
+
+    /** BTN+1 시계방향 첫 alive(=non-folded) 좌석. all-in 도 포함 — declare 는 alive 면 누구든 함. */
+    private fun firstAliveSeatFromBtn(btn: Int, players: List<PlayerState>): Int? {
+        val order = seatOrderFromBtn(btn, players)
+        return order.firstOrNull { seat -> players.first { it.seat == seat }.alive }
+    }
+
+    /**
+     * Declare 액션 적용. PlayerState.declaration = direction, actedThisStreet = true.
+     * 다음 toActSeat = 다음 alive + declaration 미설정 좌석. 모두 declare 완료 시 showdown.
+     */
+    private fun applyDeclare(state: GameState, seat: Int, direction: DeclareDirection): GameState {
+        val newPlayers = state.players.map { p ->
+            if (p.seat == seat) p.copy(declaration = direction, actedThisStreet = true)
+            else p
+        }
+        val s1 = state.copy(players = newPlayers, stateVersion = state.stateVersion + 1)
+        // 모두 declare 끝났는지: alive 좌석 모두 declaration != null.
+        val allDeclared = s1.players.filter { it.alive }.all { it.declaration != null }
+        if (allDeclared) {
+            return runShowdownDeclare(s1.copy(toActSeat = null))
+        }
+        // 다음 declare 좌석: 시계방향 다음 alive + declaration null 좌석.
+        val nextSeat = nextAliveDeclareSeat(seat, s1.players)
+        return s1.copy(toActSeat = nextSeat)
+    }
+
+    /** [from] 좌석 다음 시계방향 alive + declaration null 좌석. */
+    private fun nextAliveDeclareSeat(from: Int, players: List<PlayerState>): Int? {
+        val seats = players.filter { it.alive }.map { it.seat }.sorted()
+        if (seats.isEmpty()) return null
+        // from 다음 좌석부터 시계방향 한 바퀴.
+        val ordered = seats.dropWhile { it <= from } + seats.takeWhile { it <= from }
+        return ordered.firstOrNull { s ->
+            players.first { it.seat == s }.declaration == null
         }
     }
 
@@ -522,6 +615,144 @@ object StudReducer {
             paused = true,
             stateVersion = state.stateVersion + 1,
         )
+    }
+
+    /**
+     * Declare flow 쇼다운 — runShowdown 의 HiLo Declare 변형.
+     *
+     * 차이:
+     *  - HiLo split 강제 (mode == SEVEN_STUD_HI_LO 전제 — 호출 측 가드).
+     *  - 자격: alive 좌석 모두 declaration != null (Street.DECLARE 종료 시점).
+     *  - 분배: ShowdownResolver.resolveAllDeclare(...) — declarations 까지 입력.
+     *    Team Rules merge 전에는 [resolveAllDeclareStub] 가 임시 대체.
+     *
+     * 단일 alive 좌석 케이스는 runoutOrShowdown 가 [enterDeclareStreet] 진입을 막아주므로 본 함수
+     * 호출 시점에는 항상 alive ≥ 2.
+     */
+    private fun runShowdownDeclare(state: GameState): GameState {
+        val live = state.players.filter { !it.folded }
+        val commitments = state.players.map {
+            PlayerCommitment(seat = it.seat, committed = it.committedThisHand, folded = it.folded)
+        }
+        val sideResult = SidePotCalculator.compute(commitments)
+        val seatOrder = seatOrderFromBtn(state.btnSeat, state.players)
+
+        val bestHands: Map<Int, HandValue> = live.associate { p ->
+            p.seat to HandEvaluator7Stud.evaluateBest(p.holeCards + p.upCards)
+        }
+        // Team Rules 후속: HandEvaluatorHiLo.evaluateLow 가 non-null LowValue 로 변경됨.
+        // 현재는 nullable → !! 강제 X. 임시로 null 좌석은 분배 대상 제외 처리 (스텁).
+        val lowHandsRaw: Map<Int, LowValue?> = live.associate { p ->
+            p.seat to HandEvaluatorHiLo.evaluateLow(p.holeCards + p.upCards)
+        }
+        val declarations: Map<Int, DeclareDirection> = live.associate { p ->
+            p.seat to (p.declaration
+                ?: error("alive seat ${p.seat} has no declaration at runShowdownDeclare"))
+        }
+
+        // Team Rules 통합 후 — ShowdownResolver.resolveAllDeclare(sideResult, bestHands, lowHandsRaw, declarations, seatOrder).
+        val outcome = resolveAllDeclareStub(
+            result = sideResult,
+            hi = bestHands,
+            lo = lowHandsRaw,
+            declarations = declarations,
+            seatOrderForOdd = seatOrder,
+        )
+
+        val potSummaries = sideResult.pots.mapIndexed { idx, pot ->
+            val per = outcome.perPotOutcomes.getOrNull(idx)
+            val hiWinners = per?.hiWinners ?: emptySet()
+            val loWinners = per?.loWinners ?: emptySet()
+            val scoopWinners = per?.scoopWinners ?: emptySet()
+            PotSummary(
+                amount = pot.amount,
+                eligibleSeats = pot.eligibleSeats,
+                winnerSeats = hiWinners + loWinners + scoopWinners,
+                index = idx,
+                hiWinnerSeats = hiWinners,
+                loWinnerSeats = loWinners,
+                scoopWinnerSeats = scoopWinners,
+            )
+        }
+        val handInfos = live.associate { p ->
+            val hv = bestHands[p.seat]!!
+            p.seat to ShowdownHandInfo(
+                seat = p.seat,
+                categoryName = hv.category.korean,
+                bestFive = hv.cards,
+            )
+        }
+        val payouts = outcome.payouts.toMutableMap()
+        // uncalled 환급 합산 (resolveAll 과 동등 시맨틱).
+        for ((seat, amount) in sideResult.uncalledReturn) {
+            payouts.merge(seat, amount) { a, b -> a + b }
+        }
+
+        val newPlayers = state.players.map { p ->
+            val gain = payouts[p.seat] ?: 0L
+            p.copy(chips = p.chips + gain)
+        }
+
+        val summary = ShowdownSummary(
+            bestHands = handInfos,
+            payouts = payouts,
+            pots = potSummaries,
+            uncalledReturn = sideResult.uncalledReturn,
+            deadMoney = sideResult.deadMoney,
+            rngServerSeedHex = "",
+            rngClientSeedHex = "",
+        )
+
+        return state.copy(
+            players = newPlayers,
+            street = Street.SHOWDOWN,
+            toActSeat = null,
+            pendingShowdown = summary,
+            paused = true,
+            stateVersion = state.stateVersion + 1,
+        )
+    }
+
+    // -------------------------------------------------------
+    // TEMPORARY STUB — Team Rules merge 후 제거.
+    //
+    // Team Rules 가 ShowdownResolver.resolveAllDeclare(sideResult, hi, lo, declarations, seatOrder)
+    // 와 ResolveAllDeclareOutcome / PotDeclareOutcome 데이터 클래스를 추가하면 본 스텁 + 데이터 클래스
+    // 정의를 모두 삭제하고 호출부 (runShowdownDeclare) 의 resolveAllDeclareStub(...) 호출을
+    // ShowdownResolver.resolveAllDeclare(...) 로 교체.
+    //
+    // 동작 (스텁):
+    //  - payouts: 빈 맵 (모든 칩 보존 X — 테스트는 state-machine progression 만 검증).
+    //  - perPotOutcomes: 각 팟마다 빈 hi/lo/scoop 셋.
+    //
+    // 이 스텁은 컴파일을 위한 placeholder 일 뿐, 실제 분배 로직은 Team Rules 가 책임진다.
+    // -------------------------------------------------------
+
+    /** TODO Team Rules merge: replace stub with ShowdownResolver.resolveAllDeclare */
+    private data class StubPotDeclareOutcome(
+        val potIndex: Int,
+        val hiWinners: Set<Int> = emptySet(),
+        val loWinners: Set<Int> = emptySet(),
+        val scoopWinners: Set<Int> = emptySet(),
+    )
+
+    /** TODO Team Rules merge: replace stub with ShowdownResolver.resolveAllDeclare */
+    private data class StubResolveAllDeclareOutcome(
+        val payouts: Map<Int, Long>,
+        val perPotOutcomes: List<StubPotDeclareOutcome>,
+    )
+
+    /** TODO Team Rules merge: replace stub with ShowdownResolver.resolveAllDeclare */
+    @Suppress("UNUSED_PARAMETER")
+    private fun resolveAllDeclareStub(
+        result: com.infocar.pokermaster.engine.rules.SidePotResult,
+        hi: Map<Int, HandValue>,
+        lo: Map<Int, LowValue?>,
+        declarations: Map<Int, DeclareDirection>,
+        seatOrderForOdd: List<Int>,
+    ): StubResolveAllDeclareOutcome {
+        val perPot = result.pots.mapIndexed { idx, _ -> StubPotDeclareOutcome(potIndex = idx) }
+        return StubResolveAllDeclareOutcome(payouts = emptyMap(), perPotOutcomes = perPot)
     }
 
     private fun winnersForPot(eligible: Set<Int>, hi: Map<Int, HandValue>): List<Int> {
