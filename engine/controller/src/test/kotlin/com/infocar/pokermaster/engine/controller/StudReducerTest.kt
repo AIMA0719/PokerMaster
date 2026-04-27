@@ -3,12 +3,14 @@ package com.infocar.pokermaster.engine.controller
 import com.google.common.truth.Truth.assertThat
 import com.infocar.pokermaster.core.model.Action
 import com.infocar.pokermaster.core.model.ActionType
+import com.infocar.pokermaster.core.model.DeclareDirection
 import com.infocar.pokermaster.core.model.GameMode
 import com.infocar.pokermaster.core.model.PlayerState
 import com.infocar.pokermaster.core.model.Street
 import com.infocar.pokermaster.core.model.TableConfig
 import com.infocar.pokermaster.engine.rules.Rng
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.assertThrows
 
 class StudReducerTest {
 
@@ -479,6 +481,200 @@ class StudReducerTest {
     }
 
     // -------------------------------------------------- 7th street is dealt down
+
+    // -------------------------------------------------- HiLo Declare flow
+
+    /** 헤즈업 HiLo 헬퍼 — 7th 베팅 종료 직전까지 콜/체크로 진행. 반환된 state 는 DECLARE 단계 또는 SHOWDOWN. */
+    private fun runHiLoUntilDeclareOrShowdown(
+        nonce: Long,
+        seats: Int = 2,
+        startingChips: Long = 10_000L,
+    ): Pair<com.infocar.pokermaster.core.model.GameState, Rng> {
+        val cfg = config.copy(mode = GameMode.SEVEN_STUD_HI_LO, seats = seats, ante = 10L, bringIn = 25L)
+        val r = rngOf(nonce = nonce)
+        val initial = StudReducer.startHand(
+            config = cfg,
+            players = players(*LongArray(seats) { startingChips }),
+            prevBtnSeat = null,
+            rng = r,
+            handIndex = 1L,
+            startingVersion = 0L,
+        )
+        var s = initial
+        var guard = 0
+        while (s.street != Street.DECLARE && s.street != Street.SHOWDOWN
+            && s.pendingShowdown == null && guard++ < 200) {
+            val seat = s.toActSeat ?: break
+            val me = s.players.first { it.seat == seat }
+            val a = if (me.committedThisStreet >= s.betToCall) ActionType.CHECK else ActionType.CALL
+            s = StudReducer.act(s, seat, Action(a), r)
+        }
+        return s to r
+    }
+
+    @Test fun hilo_seventh_betting_complete_enters_declare_street() {
+        val (s, _) = runHiLoUntilDeclareOrShowdown(nonce = 401L, seats = 2)
+        assertThat(s.street).isEqualTo(Street.DECLARE)
+        assertThat(s.pendingShowdown).isNull()
+        // toActSeat 는 BTN-left 첫 alive 좌석.
+        assertThat(s.toActSeat).isNotNull()
+        // betToCall / minRaise / reopenAction 리셋.
+        assertThat(s.betToCall).isEqualTo(0L)
+        assertThat(s.minRaise).isEqualTo(0L)
+        assertThat(s.reopenAction).isFalse()
+        // alive 좌석 모두 declaration null + actedThisStreet false.
+        for (p in s.players.filter { it.alive }) {
+            assertThat(p.declaration).isNull()
+            assertThat(p.actedThisStreet).isFalse()
+        }
+    }
+
+    @Test fun declare_action_advances_only_acting_seat_others_remain_null() {
+        val (s0, r) = runHiLoUntilDeclareOrShowdown(nonce = 411L, seats = 4, startingChips = 50_000L)
+        // 4명 헤즈업이 아니라 4-way 라 라운드 종료 조건이 다를 수 있음 — DECLARE 진입 케이스만 검증.
+        if (s0.street != Street.DECLARE) return  // RNG 의존 테스트 — 다른 케이스는 다른 단위 테스트.
+        val firstSeat = s0.toActSeat!!
+        val s1 = StudReducer.act(s0, firstSeat, Action(ActionType.DECLARE_HI), r)
+        // 첫 좌석만 declaration 설정. 나머지는 여전히 null.
+        val firstPlayer = s1.players.first { it.seat == firstSeat }
+        assertThat(firstPlayer.declaration).isEqualTo(DeclareDirection.HI)
+        assertThat(firstPlayer.actedThisStreet).isTrue()
+        for (p in s1.players.filter { it.alive && it.seat != firstSeat }) {
+            assertThat(p.declaration).isNull()
+        }
+        // 아직 모두 declare 안 했으니 SHOWDOWN/pendingShowdown 으로 안 갔어야 함.
+        assertThat(s1.street).isEqualTo(Street.DECLARE)
+        assertThat(s1.pendingShowdown).isNull()
+        // 다음 toActSeat 는 다른 alive 좌석.
+        assertThat(s1.toActSeat).isNotEqualTo(firstSeat)
+        assertThat(s1.toActSeat).isNotNull()
+    }
+
+    @Test fun declare_all_alive_complete_transitions_to_showdown() {
+        val (s0, r) = runHiLoUntilDeclareOrShowdown(nonce = 421L, seats = 2)
+        assertThat(s0.street).isEqualTo(Street.DECLARE)
+        var s = s0
+        var guard = 0
+        // 모든 alive 좌석 차례로 DECLARE_HI.
+        while (s.street == Street.DECLARE && s.pendingShowdown == null && guard++ < 10) {
+            val seat = s.toActSeat ?: break
+            s = StudReducer.act(s, seat, Action(ActionType.DECLARE_HI), r)
+        }
+        assertThat(s.pendingShowdown).isNotNull()
+        assertThat(s.paused).isTrue()
+        assertThat(s.street).isEqualTo(Street.SHOWDOWN)
+        assertThat(s.toActSeat).isNull()
+        // 모든 alive 좌석 declaration 보존.
+        for (p in s.players.filter { it.alive }) {
+            assertThat(p.declaration).isEqualTo(DeclareDirection.HI)
+        }
+    }
+
+    @Test fun hilo_single_alive_after_seventh_skips_declare_and_runs_showdown() {
+        // 헤즈업 HiLo: 첫 액터 fold → 단독 승. DECLARE 절대 진입하지 않음.
+        val cfg = config.copy(mode = GameMode.SEVEN_STUD_HI_LO, seats = 2, ante = 10L, bringIn = 25L)
+        val r = rngOf(nonce = 431L)
+        var s = StudReducer.startHand(
+            config = cfg,
+            players = players(10_000, 10_000),
+            prevBtnSeat = null,
+            rng = r,
+            handIndex = 1L,
+            startingVersion = 0L,
+        )
+        val firstActor = s.toActSeat!!
+        s = StudReducer.act(s, firstActor, Action(ActionType.FOLD), r)
+        assertThat(s.pendingShowdown).isNotNull()
+        // DECLARE 단계 거치지 않고 곧장 SHOWDOWN.
+        assertThat(s.street).isEqualTo(Street.SHOWDOWN)
+        // 모든 좌석 declaration null (DECLARE 를 거치지 않으므로).
+        for (p in s.players) {
+            assertThat(p.declaration).isNull()
+        }
+    }
+
+    @Test fun declare_phase_rejects_betting_actions() {
+        val (s0, r) = runHiLoUntilDeclareOrShowdown(nonce = 441L, seats = 2)
+        assertThat(s0.street).isEqualTo(Street.DECLARE)
+        val seat = s0.toActSeat!!
+        // CALL / BET / RAISE / CHECK / FOLD 등 비-declare 액션 거절.
+        for (badType in listOf(ActionType.CALL, ActionType.CHECK, ActionType.BET,
+            ActionType.RAISE, ActionType.FOLD, ActionType.ALL_IN)) {
+            assertThrows<Throwable> {
+                StudReducer.act(s0, seat, Action(badType, 100L), r)
+            }
+        }
+    }
+
+    @Test fun declare_action_rejected_outside_declare_street() {
+        // 3rd street 에서 DECLARE_HI 보내면 거절.
+        val cfg = config.copy(mode = GameMode.SEVEN_STUD_HI_LO, seats = 2, ante = 10L, bringIn = 25L)
+        val r = rngOf(nonce = 451L)
+        val s = StudReducer.startHand(
+            config = cfg,
+            players = players(10_000, 10_000),
+            prevBtnSeat = null,
+            rng = r,
+            handIndex = 1L,
+            startingVersion = 0L,
+        )
+        assertThat(s.street).isEqualTo(Street.THIRD)
+        val seat = s.toActSeat!!
+        assertThrows<Throwable> {
+            StudReducer.act(s, seat, Action(ActionType.DECLARE_HI), r)
+        }
+    }
+
+    @Test fun seven_stud_hi_only_mode_skips_declare_and_runs_showdown_after_seventh() {
+        // 회귀: SEVEN_STUD (HiLo 아님) 는 7th 후 곧바로 SHOWDOWN — DECLARE 거치지 않음.
+        val r = rngOf(nonce = 461L)
+        var s = StudReducer.startHand(
+            config = config.copy(seats = 2),  // mode=SEVEN_STUD by default
+            players = players(10_000, 10_000),
+            prevBtnSeat = null,
+            rng = r,
+            handIndex = 1L,
+            startingVersion = 0L,
+        )
+        var guard = 0
+        while (s.pendingShowdown == null && guard++ < 80) {
+            val seat = s.toActSeat ?: break
+            val me = s.players.first { it.seat == seat }
+            val a = if (me.committedThisStreet >= s.betToCall) ActionType.CHECK else ActionType.CALL
+            s = StudReducer.act(s, seat, Action(a), r)
+        }
+        assertThat(s.pendingShowdown).isNotNull()
+        assertThat(s.street).isEqualTo(Street.SHOWDOWN)
+        // declaration 은 모드 무관 — non-HiLo 도 startHand 가 null 로 리셋.
+        for (p in s.players) {
+            assertThat(p.declaration).isNull()
+        }
+    }
+
+    @Test fun declaration_resets_to_null_on_new_hand() {
+        // DECLARE 까지 진행 후 새 핸드 startHand 호출 → declaration 모두 null 리셋.
+        val (s0, r) = runHiLoUntilDeclareOrShowdown(nonce = 471L, seats = 2)
+        assertThat(s0.street).isEqualTo(Street.DECLARE)
+        var s = s0
+        var guard = 0
+        while (s.street == Street.DECLARE && s.pendingShowdown == null && guard++ < 10) {
+            val seat = s.toActSeat ?: break
+            s = StudReducer.act(s, seat, Action(ActionType.DECLARE_LO), r)
+        }
+        assertThat(s.pendingShowdown).isNotNull()
+        // 새 핸드.
+        val nextS = StudReducer.startHand(
+            config = config.copy(mode = GameMode.SEVEN_STUD_HI_LO, seats = 2, ante = 10L, bringIn = 25L),
+            players = s.players,
+            prevBtnSeat = s.btnSeat,
+            rng = rngOf(nonce = 472L),
+            handIndex = 2L,
+            startingVersion = s.stateVersion,
+        )
+        for (p in nextS.players) {
+            assertThat(p.declaration).isNull()
+        }
+    }
 
     @Test fun seventh_street_card_lands_in_hole_cards_not_up_cards() {
         val r = rngOf(nonce =77L)
