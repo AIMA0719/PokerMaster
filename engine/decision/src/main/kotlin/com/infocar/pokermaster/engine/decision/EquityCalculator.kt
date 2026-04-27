@@ -19,8 +19,9 @@ import kotlin.random.Random
  *
  *  결정론성: [seed] 주입 시 동일 결과. 매 호출마다 Random(seed) 신규 인스턴스 — thread-safe.
  *
- *  v1: Hold'em / 7-Stud (단순화) / 7-Stud Hi-Lo (hi=0.5, lo=0.5 정규화 모델, scoop = 1.0).
- *  Hi-Lo 모델 한계: 상대 다운카드 conditional sampling 미적용 (균등 random).
+ *  v1: Hold'em / 7-Stud (단순화) / 7-Stud Hi-Lo (한국식 Declare — 8-or-better qualifier 없음).
+ *  Hi-Lo 모델: 각 declare 방향(HI/LO/BOTH)의 EV 를 별도 산출, 최적 선언 기준으로 팟 점유율 합산.
+ *  상대 다운카드 conditional sampling 미적용 (균등 random).
  */
 class EquityCalculator(private val seed: Long? = null) {
 
@@ -96,7 +97,8 @@ class EquityCalculator(private val seed: Long? = null) {
      * 7-Stud equity (단순화 버전).
      *
      * 본인 0~7 장 + 알려진 상대 업카드들. 미지 카드를 무작위 채워 7장씩 평가.
-     * Hi-Lo 모드에서는 [hiLoSplit]=true 로 hi/lo 점유율 평균.
+     * Hi-Lo 모드에서는 [hiLoSplit]=true: 한국식 Declare 모델로 최적 선언 시 기대 팟 점유율 산출.
+     * EV = max(hiEquity * 0.5, loEquity * 0.5, bothEquity * 1.0)  (BOTH 는 strict scoop)
      *
      * @param mySeven 본인 hole+up (현재 보유 카드, 1~7장). 7장 미만이면 random fill.
      * @param knownOppUpCards 상대별 업카드 (모르면 빈 리스트). 길이는 상대당 1~4 장.
@@ -127,6 +129,17 @@ class EquityCalculator(private val seed: Long? = null) {
         val needTotal = needForMe + needForOpps
         if (deck.size < needTotal) return 1.0 / (opponents + 1.0)
 
+        if (hiLoSplit) {
+            // 한국식 Declare 모델: 각 방향 EV 산출 후 최적 선언 점유율을 베팅 결정용 equity 로 반환.
+            val de = declareEquity(
+                myCards = mySeven,
+                opponents = knownOppUpCards,
+                deckRemaining = deck,
+                iterations = iterations,
+            )
+            return optimalDeclareEquity(de)
+        }
+
         val rng = Random(seed ?: System.nanoTime())
         val deckArr = deck.toMutableList()
         var sum = 0.0
@@ -137,76 +150,140 @@ class EquityCalculator(private val seed: Long? = null) {
             val mySim = if (needForMe > 0) mySeven + deckArr.subList(pos, pos + needForMe) else mySeven
             pos += needForMe
 
-            if (hiLoSplit) {
-                // Hi-Lo: 누구라도 lo qualify(8 이하 + no pair) 하면 팟 hi 50%/lo 50% 분할,
-                // 아무도 qualify 못하면 hi 가 팟 100% 차지 (Hi-Lo 표준 룰).
-                val myHi = HandEvaluatorHiLo.evaluateHigh(mySim)
-                val myLo = HandEvaluatorHiLo.evaluateLow(mySim)
-                var hiBetter = 0; var hiTies = 0
-                val myLoQualified = myLo != null
-                var loBetter = 0; var loTies = 0
-                var anyOpLoQualified = false
-
-                for (opUp in knownOppUpCards) {
-                    val opSim = opUp + deckArr.subList(pos, pos + (7 - opUp.size))
-                    pos += 7 - opUp.size
-                    val opHi = HandEvaluatorHiLo.evaluateHigh(opSim)
-                    val cmpHi = myHi.compareTo(opHi)
-                    when {
-                        cmpHi > 0 -> hiBetter++
-                        cmpHi == 0 -> hiTies++
-                        else -> { /* hiWorse — 점유율 산출엔 불필요 */ }
-                    }
-                    val opLo = HandEvaluatorHiLo.evaluateLow(opSim)
-                    if (opLo != null) anyOpLoQualified = true
-                    when {
-                        myLo != null && opLo != null -> {
-                            val cmpLo = myLo.compareTo(opLo)
-                            when {
-                                cmpLo < 0 -> loBetter++       // 작을수록 강
-                                cmpLo == 0 -> loTies++
-                                else -> { /* loWorse */ }
-                            }
-                        }
-                        myLo != null && opLo == null -> loBetter++
-                        // myLo == null: 본인이 lo 자격 없으므로 별도 카운팅 불필요 (loShare=0 으로 처리)
-                    }
-                }
-                val hiShare = if (hiBetter == opponents) 1.0
-                              else if (hiBetter + hiTies == opponents) 1.0 / (hiTies + 1)
-                              else 0.0
-                val loShare = if (myLoQualified) {
-                    if (loBetter == opponents) 1.0
-                    else if (loBetter + loTies == opponents) 1.0 / (loTies + 1)
-                    else 0.0
-                } else 0.0
-                sum += hiLoIterationShare(
-                    hiShare = hiShare,
-                    loShare = loShare,
-                    myLoQualified = myLoQualified,
-                    anyOpLoQualified = anyOpLoQualified,
-                )
-            } else {
-                val myValue = HandEvaluator7Stud.evaluateBest(mySim)
-                var bestOpp: HandValue = HandValue.MIN
-                var ties = 0
-                for (opUp in knownOppUpCards) {
-                    val opSim = opUp + deckArr.subList(pos, pos + (7 - opUp.size))
-                    pos += 7 - opUp.size
-                    val v = HandEvaluator7Stud.evaluateBest(opSim)
-                    val cmp = v.compareTo(bestOpp)
-                    if (cmp > 0) { bestOpp = v; ties = 1 }
-                    else if (cmp == 0) { ties++ }
-                }
-                val cmp = myValue.compareTo(bestOpp)
-                sum += when {
-                    cmp > 0 -> 1.0
-                    cmp == 0 -> 1.0 / (ties + 1)
-                    else -> 0.0
-                }
+            val myValue = HandEvaluator7Stud.evaluateBest(mySim)
+            var bestOpp: HandValue = HandValue.MIN
+            var ties = 0
+            for (opUp in knownOppUpCards) {
+                val opSim = opUp + deckArr.subList(pos, pos + (7 - opUp.size))
+                pos += 7 - opUp.size
+                val v = HandEvaluator7Stud.evaluateBest(opSim)
+                val cmp = v.compareTo(bestOpp)
+                if (cmp > 0) { bestOpp = v; ties = 1 }
+                else if (cmp == 0) { ties++ }
+            }
+            val cmp = myValue.compareTo(bestOpp)
+            sum += when {
+                cmp > 0 -> 1.0
+                cmp == 0 -> 1.0 / (ties + 1)
+                else -> 0.0
             }
         }
         return sum / iterations
+    }
+
+    /**
+     * 한국식 Declare Hi-Lo: 각 선언 방향별 기대 점유율 산출.
+     *
+     * 알고리즘 (Monte Carlo):
+     *  - 본인은 [myCards] 1~7 장. 7장 미만은 deck 에서 fill.
+     *  - 각 상대는 보유 known cards (보통 4 up) + deck 에서 7장 채움.
+     *  - 매 시뮬마다 hi 단독최강 / lo 단독최강 / scoop 여부 카운트.
+     *  - hiEquity/loEquity 는 단독1위(=1.0), 동률(=1/n), 패배(=0) 평균.
+     *  - bothEquity 는 strict: hi 단독최강 AND lo 단독최강 일 때만 1.0, 그 외 0.
+     *  - 한국식 룰: 8-or-better qualifier 없음 → lo 는 항상 평가 가능.
+     *    Team Rules 통합 후 [HandEvaluatorHiLo.evaluateLow] 가 non-null 반환 예정.
+     *    현 worktree 는 nullable 시그니처 유지 — fallback (null = 약한 lo) 로 호환.
+     *
+     * @param myCards 본인 보유 카드 (1~7 장)
+     * @param opponents 상대별 known cards (보통 4 up). 빈 리스트면 그 상대는 7장 모두 deck 에서.
+     * @param deckRemaining 잔여 덱 (myCards + opponents.flatten() 제외 후 standardDeck).
+     * @param iterations 시뮬 횟수.
+     */
+    fun declareEquity(
+        myCards: List<Card>,
+        opponents: List<List<Card>>,
+        deckRemaining: List<Card>,
+        iterations: Int = 1_000,
+    ): DeclareEquity {
+        require(myCards.size in 1..7) { "My cards must be 1~7" }
+        if (opponents.isEmpty()) {
+            // 상대 0: 본인이 모든 방향 단독 최강 → scoop 확정.
+            return DeclareEquity(hiEquity = 1.0, loEquity = 1.0, bothEquity = 1.0)
+        }
+        opponents.forEach {
+            require(it.size in 0..7) { "Each opponent known cards must be 0~7" }
+        }
+
+        val needForMe = 7 - myCards.size
+        val needForOpps = opponents.sumOf { 7 - it.size }
+        val needTotal = needForMe + needForOpps
+        if (deckRemaining.size < needTotal) {
+            // 덱 부족 시 균등 fallback.
+            val even = 1.0 / (opponents.size + 1.0)
+            return DeclareEquity(hiEquity = even, loEquity = even, bothEquity = 0.0)
+        }
+
+        val rng = Random(seed ?: System.nanoTime())
+        val deckArr = deckRemaining.toMutableList()
+        var sumHi = 0.0
+        var sumLo = 0.0
+        var sumBoth = 0.0
+
+        repeat(iterations) {
+            shufflePrefix(deckArr, needTotal, rng)
+            var pos = 0
+
+            val mySim = if (needForMe > 0) myCards + deckArr.subList(pos, pos + needForMe) else myCards
+            pos += needForMe
+
+            val myHi = HandEvaluatorHiLo.evaluateHigh(mySim)
+            val myLo = evalLow(mySim)
+
+            // hi: 단독 최대인지. lo: 단독 최소(LowValue 작을수록 강)인지.
+            var hiTiesIncludingMe = 1   // 본인 포함 동률 수
+            var hiBeatenByOpp = false
+            var loTiesIncludingMe = 1
+            var loBeatenByOpp = false
+
+            for (opKnown in opponents) {
+                val opSim = if (opKnown.size < 7)
+                    opKnown + deckArr.subList(pos, pos + (7 - opKnown.size))
+                else opKnown
+                pos += 7 - opKnown.size
+
+                val opHi = HandEvaluatorHiLo.evaluateHigh(opSim)
+                val cmpHi = myHi.compareTo(opHi)
+                when {
+                    cmpHi < 0 -> hiBeatenByOpp = true
+                    cmpHi == 0 -> hiTiesIncludingMe++
+                    // cmpHi > 0: 본인이 이 상대 이김 — 별도 카운트 불필요
+                }
+
+                val opLo = evalLow(opSim)
+                val cmpLo = myLo.compareTo(opLo)   // 작을수록 강
+                when {
+                    cmpLo > 0 -> loBeatenByOpp = true
+                    cmpLo == 0 -> loTiesIncludingMe++
+                }
+            }
+
+            val hiShare = when {
+                hiBeatenByOpp -> 0.0
+                hiTiesIncludingMe == 1 -> 1.0
+                else -> 1.0 / hiTiesIncludingMe
+            }
+            val loShare = when {
+                loBeatenByOpp -> 0.0
+                loTiesIncludingMe == 1 -> 1.0
+                else -> 1.0 / loTiesIncludingMe
+            }
+            // STRICT BOTH: 양방향 모두 단독 1위(동률 없음)일 때만 scoop.
+            val bothShare = if (
+                !hiBeatenByOpp && !loBeatenByOpp &&
+                hiTiesIncludingMe == 1 && loTiesIncludingMe == 1
+            ) 1.0 else 0.0
+
+            sumHi += hiShare
+            sumLo += loShare
+            sumBoth += bothShare
+        }
+
+        val n = iterations.toDouble()
+        return DeclareEquity(
+            hiEquity = sumHi / n,
+            loEquity = sumLo / n,
+            bothEquity = sumBoth / n,
+        )
     }
 
     /** 모드 별 dispatch. 단순 헬퍼. */
@@ -247,9 +324,19 @@ class EquityCalculator(private val seed: Long? = null) {
         }
     }
 
+    /**
+     * Lo 평가 호환 wrapper.
+     *
+     * TODO(Team Rules merge): [HandEvaluatorHiLo.evaluateLow] 가 non-null [LowValue] 반환으로
+     * 시그니처 변경 예정 (8-or-better qualifier 제거, 한국식 항상 평가). 통합 후 이 wrapper 와
+     * [WORST_LOW] fallback 은 제거 가능 — `?:` 부분이 자연스레 no-op 됨.
+     */
+    private fun evalLow(seven: List<Card>): LowValue =
+        HandEvaluatorHiLo.evaluateLow(seven) ?: WORST_LOW
+
     internal companion object {
         /**
-         * Hi-Lo 한 시뮬 iteration 의 본인 점유율.
+         * Hi-Lo 한 시뮬 iteration 의 본인 점유율 (legacy 8-or-better 모델).
          *
          *  - 누구라도(본인 또는 상대) lo qualify 하면 팟 hi 50%/lo 50% 분할: hi*0.5 + lo*0.5.
          *  - 아무도 lo qualify 못 하면 팟 분할 자체가 일어나지 않으므로 hi 가 100%: hi.
@@ -257,6 +344,9 @@ class EquityCalculator(private val seed: Long? = null) {
          *  M7-BugFix: 이전엔 myLo == null 일 때 loShare=0 + 가중치 0.5 로 hi 점유율의 절반만 계상해
          *  hi-only 시나리오에서 equity 가 절반으로 깎였다. 누구도 lo 자격을 얻지 못하는 시뮬에선
          *  팟 분할 자체가 없어야 한다.
+         *
+         *  한국식 Declare 도입(이번 변경)으로 [sevenStudEquity] 의 hiLoSplit 분기는
+         *  [optimalDeclareEquity] 로 대체됨. 이 함수는 회귀 테스트(legacy 모델 검증)용으로 유지.
          */
         @JvmStatic
         internal fun hiLoIterationShare(
@@ -268,5 +358,48 @@ class EquityCalculator(private val seed: Long? = null) {
             val anyLoQualified = myLoQualified || anyOpLoQualified
             return if (anyLoQualified) hiShare * 0.5 + loShare * 0.5 else hiShare
         }
+
+        /**
+         * [DeclareEquity] 에서 최적 선언 시 기대 팟 점유율.
+         *
+         *  - HI 선언:   hiEquity * 0.5  (팟 절반 점유)
+         *  - LO 선언:   loEquity * 0.5
+         *  - BOTH 선언: bothEquity * 1.0 (strict — scoop 성공 시 전팟, 실패 시 0)
+         *
+         *  EV 최대값 반환 = AI 가 합리적 선언 시 기대하는 팟 점유율.
+         *  betting round 의 equity input 으로 사용.
+         */
+        @JvmStatic
+        fun optimalDeclareEquity(de: DeclareEquity): Double = maxOf(
+            de.hiEquity * 0.5,
+            de.loEquity * 0.5,
+            de.bothEquity * 1.0,
+        )
+
+        /**
+         * 한국식 룰: lo qualify 가 없어도 lo 평가는 항상 가능해야 한다.
+         * 현 worktree 의 [HandEvaluatorHiLo.evaluateLow] 가 nullable 인 동안
+         * "최악의 lo" 로 fallback. Team Rules 통합 후 제거 예정.
+         */
+        private val WORST_LOW: LowValue = LowValue(
+            tiebreakersDesc = listOf(99, 99, 99, 99, 99),  // 어떤 정상 LowValue 보다도 큼 = 가장 약한 lo
+            cards = emptyList(),
+        )
     }
 }
+
+/**
+ * 한국식 Declare Hi-Lo: 각 선언 방향별 추정 equity.
+ *
+ *  - [hiEquity]: hi 단독 최강 확률 (동률 분할 시 1/n).
+ *  - [loEquity]: lo 단독 최강(LowValue 작을수록 강) 확률 (동률 분할 시 1/n).
+ *  - [bothEquity]: 양방향 모두 단독 1위 (strict scoop) 확률.
+ *
+ *  세 값은 각각 [0,1] 범위지만 sum-to-1 아님 (서로 다른 선언 선택지에 대한 추정).
+ *  AI 의 선언 결정: max(hiEquity*0.5, loEquity*0.5, bothEquity*1.0).
+ */
+data class DeclareEquity(
+    val hiEquity: Double,
+    val loEquity: Double,
+    val bothEquity: Double,
+)
