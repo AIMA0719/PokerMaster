@@ -130,6 +130,7 @@ object A11yStrings {
         Street.FIFTH -> "핍스 스트릿"
         Street.SIXTH -> "식스 스트릿"
         Street.SEVENTH -> "세븐스 스트릿"
+        Street.DECLARE -> "선언"
         Street.SHOWDOWN -> "쇼다운"
     }
 
@@ -157,7 +158,36 @@ object A11yStrings {
         ActionType.COMPLETE -> "콤플리트 ${chips(amount)} 버튼"
         ActionType.BRING_IN -> "브링인 ${chips(amount)} 버튼"
         ActionType.SAVE_LIFE -> "구사 버튼"
+        ActionType.DECLARE_HI -> declarePromptHi
+        ActionType.DECLARE_LO -> declarePromptLo
+        ActionType.DECLARE_BOTH -> declarePromptBoth
     }
+
+    // --- HiLo Declare 안내 -------------------------------------------------
+
+    /** HI 선언 버튼/뱃지. */
+    const val declarePromptHi: String = "하이 선언"
+
+    /** LO 선언 버튼/뱃지. */
+    const val declarePromptLo: String = "로우 선언"
+
+    /** Both(scoop) 선언 — 위험 안내 포함. */
+    const val declarePromptBoth: String = "양방향 선언, 두 방향 모두 사올 1등 필수"
+
+    /** 상대 좌석의 선언이 마스킹되어 보이지 않을 때. */
+    const val declarationOpponentHidden: String = "상대 선언 비공개"
+
+    /** 분배 라벨 — scoop 단독 우승. */
+    const val scoopWinnerLabel: String = "양방향 우승"
+
+    /** 분배 라벨 — HI 사이드 우승. */
+    const val hiWinnerLabel: String = "하이 우승"
+
+    /** 분배 라벨 — LO 사이드 우승. */
+    const val loWinnerLabel: String = "로우 우승"
+
+    /** 양방향 선언 무산 — 0 payout. */
+    const val bothForfeit: String = "양방향 선언 실패"
 
     // --- Misc UI ------------------------------------------------------------
 

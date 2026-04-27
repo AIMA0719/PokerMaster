@@ -36,10 +36,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.infocar.pokermaster.core.model.Card
+import com.infocar.pokermaster.core.model.DeclareDirection
+import com.infocar.pokermaster.core.model.GameMode
 import com.infocar.pokermaster.core.model.PotSummary
 import com.infocar.pokermaster.core.model.Rank
 import com.infocar.pokermaster.core.model.Suit
 import com.infocar.pokermaster.core.ui.theme.HangameColors
+import com.infocar.pokermaster.core.ui.theme.PokerColors
 import com.infocar.pokermaster.core.ui.theme.PokerMasterTheme
 import com.infocar.pokermaster.feature.table.anim.PotGhostChipsOverlay
 import kotlinx.coroutines.delay
@@ -131,7 +134,13 @@ fun HandEndSheet(
                     )
                 }
 
-                // 3. 베스트 5장
+                // 3. HiLo 모드 선언 패널 — 좌석별 (선언, 양방향 실패 마크).
+                //    HiLo low-best-five 카드 표시는 follow-up 으로 연기 (현재 best-five 는 HI-only).
+                if (data.mode == GameMode.SEVEN_STUD_HI_LO && data.declarationsBySeat.isNotEmpty()) {
+                    DeclarationsPanel(data = data)
+                }
+
+                // 4. 베스트 5장 (HI 사이드 기준)
                 val winnerSeats = data.pots.flatMap { it.winnerSeats }.toSet()
                 val bestFiveRows = winnerSeats
                     .mapNotNull { seat -> data.bestFiveBySeat[seat]?.let { seat to it } }
@@ -198,6 +207,64 @@ fun HandEndSheet(
             )
         }
       }
+    }
+}
+
+/**
+ * HiLo Declare 좌석별 선언 패널.
+ *
+ *  - HI → "(하이 선언)" — HI 사이드 색
+ *  - LO → "(로우 선언)" — LO 사이드 색
+ *  - BOTH → "(양방향 선언)" — warning 색
+ *  - BOTH 좌석이 payouts==0 이면 "× 실패" 빨강 마크 추가.
+ */
+@Composable
+private fun DeclarationsPanel(data: HandEndViewData) {
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        Text(
+            text = "선언",
+            style = MaterialTheme.typography.labelMedium,
+            color = HangameColors.TextSecondary,
+        )
+        data.declarationsBySeat.entries.sortedBy { it.key }.forEach { (seat, dir) ->
+            val nickname = data.nicknameBySeat[seat] ?: "#$seat"
+            val payout = data.payoutsBySeat[seat] ?: 0L
+            val (label, color) = when (dir) {
+                DeclareDirection.HI -> "(하이 선언)" to HangameColors.BtnQuarter
+                DeclareDirection.LO -> "(로우 선언)" to HangameColors.BtnHalf
+                DeclareDirection.BOTH -> "(양방향 선언)" to PokerColors.Warning
+            }
+            val forfeit = dir == DeclareDirection.BOTH && payout == 0L
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Text(
+                    text = nickname,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = HangameColors.TextPrimary,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    text = label,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = color,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                if (forfeit) {
+                    Text(
+                        text = "× 실패",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = HangameColors.TextDanger,
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
+            }
+        }
     }
 }
 

@@ -276,13 +276,22 @@ class TableViewModel private constructor(
     // ---------------------------------------------------------------- Action Labels
 
     private fun showLastAction(seat: Int, action: Action) {
-        val label = when (action.type) {
-            ActionType.FOLD -> "폴드"
-            ActionType.CHECK -> "체크"
-            ActionType.CALL -> "콜"
-            ActionType.BET -> "벳 ${ChipFormat.format(action.amount)}"
-            ActionType.RAISE -> "레이즈 ${ChipFormat.format(action.amount)}"
-            ActionType.ALL_IN -> "올인"
+        // HiLo UI: DECLARE_HI/LO/BOTH 액션은 옆에서는 비공개 — Street.DECLARE 단계 동안
+        // 다른 좌석의 라벨이 노출되면 비공개 룰(상대 선언 마스킹)을 깨버린다. 본인 좌석 외에는
+        // 단순히 "선언" 만 표시. 본인은 상세 라벨 노출.
+        val isOpponentDeclare = action.type in DECLARE_TYPES &&
+            _state.value.players.firstOrNull { it.seat == seat }?.isHuman != true
+        val label = when {
+            isOpponentDeclare -> "선언"
+            action.type == ActionType.FOLD -> "폴드"
+            action.type == ActionType.CHECK -> "체크"
+            action.type == ActionType.CALL -> "콜"
+            action.type == ActionType.BET -> "벳 ${ChipFormat.format(action.amount)}"
+            action.type == ActionType.RAISE -> "레이즈 ${ChipFormat.format(action.amount)}"
+            action.type == ActionType.ALL_IN -> "올인"
+            action.type == ActionType.DECLARE_HI -> "하이 선언"
+            action.type == ActionType.DECLARE_LO -> "로우 선언"
+            action.type == ActionType.DECLARE_BOTH -> "양방향 선언"
             else -> action.type.name
         }
         _lastActions.value = _lastActions.value + (seat to label)
@@ -534,6 +543,13 @@ class TableViewModel private constructor(
 
     }
 }
+
+/** HiLo UI: 좌석 라벨 마스킹용 — DECLARE_* 모음. */
+private val DECLARE_TYPES: Set<ActionType> = setOf(
+    ActionType.DECLARE_HI,
+    ActionType.DECLARE_LO,
+    ActionType.DECLARE_BOTH,
+)
 
 // ---------------------------------------------------------------------------- Hex helpers
 

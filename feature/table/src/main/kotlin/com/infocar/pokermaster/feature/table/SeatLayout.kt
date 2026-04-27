@@ -475,7 +475,8 @@ private fun MiniHoleCards(
  *
  *  - 비-본인 + 비-쇼다운: 다운카드(face-down placeholder)는 정보가 없어 생략하고 업카드만 표시.
  *  - 본인 또는 쇼다운: 다운+업 모두 face-up 으로 표시.
- *  - 카드 수 4 → 0.85x, 5 → 0.70x, 6+ → 0.55x. seat width overflow 방지.
+ *  - 카드 수가 5+ 면 두 줄(2-row grid)로 wrap — 단일 줄 축소(0.55~0.7x) 시
+ *    슈트/랭크가 흐려지는 "거칠다" 이슈 회피. (HiLo UI bug-hunt: 7스터드 업카드 가독성)
  */
 @Composable
 private fun MiniSeatCards(
@@ -489,31 +490,60 @@ private fun MiniSeatCards(
     val showHole = isHuman || isShowdown
     val cards = if (showHole) holeCards + upCards else upCards
     val n = cards.size
-    val factor = when {
-        n >= 6 -> 0.55f
-        n == 5 -> 0.70f
-        n == 4 -> 0.85f
-        else -> 1.0f
-    }
-    val w = (cardWidth.value * factor).dp
-    val h = (cardHeight.value * factor).dp
-    // M7: 새 카드 등장 시 fadeIn + slideIn (위→아래) — 4-7th street 업카드 인스턴트 등장 회피.
+    // HiLo UI bug-hunt: 카드 5장 이상이면 단일 줄 축소(0.55x) 대신 2-row wrap 으로 가독성 회복.
+    // 4장 까지는 그대로 1-row + 약간 축소.
     val reduceMotion = LocalReduceMotion.current
     val cardDuration = if (reduceMotion) 0 else DealAnimationSpec.HOLE_CARD_DURATION_MS
-    Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-        for (card in cards) {
-            val visibleState = remember(card) {
-                MutableTransitionState(false).apply { targetState = true }
-            }
-            AnimatedVisibility(
-                visibleState = visibleState,
-                enter = slideInVertically(
-                    animationSpec = tween(cardDuration, easing = FastOutSlowInEasing),
-                ) { -it } + fadeIn(animationSpec = tween(cardDuration)),
-            ) {
-                PlayingCard(card = card, faceDown = false, width = w, height = h)
+
+    if (n <= 4) {
+        val factor = if (n == 4) 0.85f else 1.0f
+        val w = (cardWidth.value * factor).dp
+        val h = (cardHeight.value * factor).dp
+        Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+            for (card in cards) {
+                MiniSeatCardItem(card = card, width = w, height = h, durationMs = cardDuration)
             }
         }
+    } else {
+        // 5+ 장: 4장씩 끊어 두 줄. 줄당 0.78x (약간 축소만으로 충분히 들어옴).
+        val factor = 0.78f
+        val w = (cardWidth.value * factor).dp
+        val h = (cardHeight.value * factor).dp
+        val perRow = (n + 1) / 2  // 7 → 4/3, 6 → 3/3, 5 → 3/2
+        val firstRow = cards.take(perRow)
+        val secondRow = cards.drop(perRow)
+        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                for (card in firstRow) {
+                    MiniSeatCardItem(card = card, width = w, height = h, durationMs = cardDuration)
+                }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                for (card in secondRow) {
+                    MiniSeatCardItem(card = card, width = w, height = h, durationMs = cardDuration)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun MiniSeatCardItem(
+    card: Card,
+    width: Dp,
+    height: Dp,
+    durationMs: Int,
+) {
+    val visibleState = remember(card) {
+        MutableTransitionState(false).apply { targetState = true }
+    }
+    AnimatedVisibility(
+        visibleState = visibleState,
+        enter = slideInVertically(
+            animationSpec = tween(durationMs, easing = FastOutSlowInEasing),
+        ) { -it } + fadeIn(animationSpec = tween(durationMs)),
+    ) {
+        PlayingCard(card = card, faceDown = false, width = width, height = height)
     }
 }
 
