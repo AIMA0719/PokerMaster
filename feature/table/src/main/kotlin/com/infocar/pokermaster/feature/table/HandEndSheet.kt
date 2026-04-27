@@ -41,6 +41,7 @@ import com.infocar.pokermaster.core.model.Rank
 import com.infocar.pokermaster.core.model.Suit
 import com.infocar.pokermaster.core.ui.theme.PokerColors
 import com.infocar.pokermaster.core.ui.theme.PokerMasterTheme
+import com.infocar.pokermaster.feature.table.anim.PotGhostChipsOverlay
 import kotlinx.coroutines.delay
 
 /**
@@ -86,11 +87,13 @@ fun HandEndSheet(
         stringResource(id = R.string.hand_end_winner)
     }
 
+    val reduceMotion = LocalReduceMotion.current
     AnimatedVisibility(
         visible = visible,
         enter = slideInVertically(initialOffsetY = { fullHeight -> fullHeight }) + fadeIn(),
         modifier = modifier,
     ) {
+      Box(modifier = Modifier.fillMaxWidth()) {
         Surface(
             modifier = Modifier
                 .fillMaxWidth()
@@ -188,6 +191,13 @@ fun HandEndSheet(
                 }
             }
         }
+        if (!reduceMotion) {
+            PotGhostChipsOverlay(
+                modifier = Modifier
+                    .matchParentSize(),
+            )
+        }
+      }
     }
 }
 

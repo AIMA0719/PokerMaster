@@ -57,6 +57,7 @@ import com.infocar.pokermaster.core.ui.theme.HangameColors
 import com.infocar.pokermaster.core.ui.theme.PokerMasterTheme
 import com.infocar.pokermaster.feature.table.a11y.A11yStrings
 import com.infocar.pokermaster.feature.table.anim.DealAnimationSpec
+import com.infocar.pokermaster.feature.table.anim.cardEntrance
 import com.infocar.pokermaster.feature.table.anim.pulseFloat
 import kotlin.math.cos
 import kotlin.math.sin
@@ -458,6 +459,11 @@ private fun MiniHoleCards(
                     faceDown = faceDown,
                     width = cardWidth,
                     height = cardHeight,
+                    modifier = Modifier.cardEntrance(
+                        durationMs = cardDuration,
+                        delayMs = absoluteDelay,
+                        key = card,
+                    ),
                 )
             }
         }
