@@ -106,11 +106,12 @@ fun ActionBar(
         )
         // 7스터드/HiLo 전용 "구사" 버튼 — 콜 봉착 + 살아있는 칩 보유 시 활성.
         // 잔여 콜의 절반만 commit 하고 allIn 으로 전환 (StudReducer.applySaveLife).
+        // 다이(빨강) 와 시각적으로 분리하기 위해 갈색-골드 톤 사용 — 한국식 스터드 신호.
         if (state.canSaveLife) {
             ActionButton(
                 label = "구사",
-                tint = HangameColors.BtnFold,
-                tintDark = HangameColors.BtnFoldDark,
+                tint = HangameColors.BtnSaveLife,
+                tintDark = HangameColors.BtnSaveLifeDark,
                 enabled = true,
                 a11y = "구사 (한국식 7스터드)",
                 onClick = { onAction(Action(ActionType.SAVE_LIFE)) },
@@ -166,15 +167,16 @@ private fun ActionButton(
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .height(44.dp)
-            .clip(RoundedCornerShape(8.dp))
+            // a11y: ≥48dp hit target. 14sp 라벨도 여유롭게 들어감.
+            .height(52.dp)
+            .clip(RoundedCornerShape(10.dp))
             .background(gradient)
             .border(
                 BorderStroke(
                     1.dp,
                     if (enabled) Color.White.copy(alpha = 0.25f) else HangameColors.SeatBorder,
                 ),
-                RoundedCornerShape(8.dp),
+                RoundedCornerShape(10.dp),
             )
             .pointerInput(enabled) {
                 if (enabled) detectTapGestures(onTap = {

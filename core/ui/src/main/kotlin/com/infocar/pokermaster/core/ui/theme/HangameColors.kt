@@ -90,6 +90,19 @@ object HangameColors {
     val BetChipBg = Color(0xFF2979FF)
     val BetChipText = Color(0xFFFFFFFF)
 
+    // ── 7스터드 / 하이로우 전용 액센트 ──────────────────────────────
+    /**
+     * 7스터드 전용 보조색 — 한국식 스터드의 "구사/브링인" 같은 모드 특성을 시각적으로 강조.
+     * 기본 lime 활성색과 구분되도록 Hi(보랏빛)/Lo(시원한 시안)로 분할.
+     */
+    val StudAccent = Color(0xFFCDE940)         // 7스터드 모드 라벨 (lime)
+    val HiLoHiBadge = Color(0xFFFFB74D)        // Hi 사이드 (오렌지/골드)
+    val HiLoLoBadge = Color(0xFF4FC3F7)        // Lo 사이드 (시안)
+    val HiLoScoopBadge = Color(0xFFFFD54F)     // 스쿠프 (밝은 골드)
+    /** 7스터드 모드에서만 노출되는 "구사" 버튼 — 일반 폴드와 구분. */
+    val BtnSaveLife = Color(0xFFB5651D)
+    val BtnSaveLifeDark = Color(0xFF7A3F0F)
+
     // ── 그라데이션 헬퍼 ─────────────────────────────────────────────
     /** 메인 배경 — 네이비 수직 그라데이션. */
     val BackgroundBrush: Brush
