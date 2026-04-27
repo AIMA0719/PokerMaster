@@ -467,8 +467,10 @@ private fun MiniHoleCards(
 /**
  * 7스터드용 미니 카드 묶음. 시트 폭 안에 무조건 들어가도록 카드 수에 따라 자동 축소.
  *
- *  - 비-본인 + 비-쇼다운: 다운카드(face-down placeholder)는 정보가 없어 생략하고 업카드만 표시.
- *  - 본인 또는 쇼다운: 다운+업 모두 face-up 으로 표시.
+ *  - 비-본인 + 비-쇼다운: 다운카드는 정보가 없으므로 카운트만큼 face-down 카드로 표시
+ *    (한게임풍 — 상대가 몇 장 들고 있는지 시각적으로 인지). 업카드는 face-up.
+ *  - 본인 또는 쇼다운: 다운(홀) + 업 모두 face-up 으로 표시. 본인의 다운카드(홀)는
+ *    살짝 골드 highlight 로 "이게 너의 비공개 카드" 라고 시각 신호.
  *  - 카드 수 4 → 0.85x, 5 → 0.70x, 6+ → 0.55x. seat width overflow 방지.
  */
 @Composable
@@ -481,12 +483,12 @@ private fun MiniSeatCards(
     cardHeight: Dp,
 ) {
     val showHole = isHuman || isShowdown
-    val cards = if (showHole) holeCards + upCards else upCards
-    val n = cards.size
+    // 비공개 시에도 다운카드 자리 표시 — 한게임 7포커는 상대 다운카드 슬롯이 카드 뒷면으로 보임.
+    val totalSlots = holeCards.size + upCards.size
     val factor = when {
-        n >= 6 -> 0.55f
-        n == 5 -> 0.70f
-        n == 4 -> 0.85f
+        totalSlots >= 6 -> 0.55f
+        totalSlots == 5 -> 0.70f
+        totalSlots == 4 -> 0.85f
         else -> 1.0f
     }
     val w = (cardWidth.value * factor).dp
@@ -494,19 +496,41 @@ private fun MiniSeatCards(
     // M7: 새 카드 등장 시 fadeIn + slideIn (위→아래) — 4-7th street 업카드 인스턴트 등장 회피.
     val reduceMotion = LocalReduceMotion.current
     val cardDuration = if (reduceMotion) 0 else DealAnimationSpec.HOLE_CARD_DURATION_MS
+
+    // 렌더 순서: 홀(다운) 먼저 → 업카드. 본인이면 홀 highlight 로 자기 비공개 카드 강조.
+    @Composable
+    fun cardSlot(card: Card?, isHole: Boolean) {
+        val visibleKey = card ?: ("hole-down-$isHole-$totalSlots")
+        val visibleState = remember(visibleKey) {
+            MutableTransitionState(false).apply { targetState = true }
+        }
+        AnimatedVisibility(
+            visibleState = visibleState,
+            enter = slideInVertically(
+                animationSpec = tween(cardDuration, easing = FastOutSlowInEasing),
+            ) { -it } + fadeIn(animationSpec = tween(cardDuration)),
+        ) {
+            // 홀카드: 본인/쇼다운에는 face-up + highlight, 그 외에는 face-down placeholder.
+            // 업카드: 항상 face-up.
+            PlayingCard(
+                card = card,
+                faceDown = isHole && !showHole,
+                width = w,
+                height = h,
+                highlight = isHole && isHuman && card != null,
+            )
+        }
+    }
+
     Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-        for (card in cards) {
-            val visibleState = remember(card) {
-                MutableTransitionState(false).apply { targetState = true }
-            }
-            AnimatedVisibility(
-                visibleState = visibleState,
-                enter = slideInVertically(
-                    animationSpec = tween(cardDuration, easing = FastOutSlowInEasing),
-                ) { -it } + fadeIn(animationSpec = tween(cardDuration)),
-            ) {
-                PlayingCard(card = card, faceDown = false, width = w, height = h)
-            }
+        // 홀(다운)카드 슬롯들. 비공개 시에도 카드 등 그려서 카운트 인지.
+        for (i in holeCards.indices) {
+            val card = if (showHole) holeCards.getOrNull(i) else null
+            cardSlot(card, isHole = true)
+        }
+        // 업카드들 — 항상 face-up.
+        for (card in upCards) {
+            cardSlot(card, isHole = false)
         }
     }
 }
