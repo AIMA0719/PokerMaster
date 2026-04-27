@@ -95,4 +95,9 @@ data class PotSummary(
     val hiWinnerSeats: Set<Int> = winnerSeats,
     /** 로우 사이드 승자. HiLo 모드에서만 채워짐 (qualify 미달 시 emptySet). 그 외 emptySet. */
     val loWinnerSeats: Set<Int> = emptySet(),
+    /**
+     * 한국식 Hi-Lo Declare 에서 단독 양방향 우승(scoop) 좌석. UI 가 ★HL 강조 표시.
+     * 비-HiLo / Both 선언 무산 / 동률 분할 등 일반 케이스는 emptySet.
+     */
+    val scoopWinnerSeats: Set<Int> = emptySet(),
 )

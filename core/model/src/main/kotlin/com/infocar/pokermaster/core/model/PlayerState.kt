@@ -30,6 +30,11 @@ data class PlayerState(
     val allIn: Boolean = false,
     /** 현 스트릿 액션 참여 완료 (체크/콜/레이즈/폴드 후 true). 새 스트릿 시작 시 false 로 리셋. */
     val actedThisStreet: Boolean = false,
+    /**
+     * 한국식 Hi-Lo 선언. SEVEN_STUD_HI_LO 모드의 Street.DECLARE 단계에서만 채워짐.
+     * 다른 모드/스트릿에서는 항상 null. 다른 좌석에 노출 X (UI 매핑 시 본인 좌석만 공개).
+     */
+    val declaration: DeclareDirection? = null,
 ) {
     /** 이 좌석이 이번 스트릿에 액션 선택 가능한가 (folded/allIn 제외). */
     val active: Boolean get() = !folded && !allIn
