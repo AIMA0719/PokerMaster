@@ -361,6 +361,20 @@ private fun GameMode.titleRes(): Int = when (this) {
     GameMode.HOLDEM_NL -> R.string.mode_holdem
 }
 
+/** 모드 짧은 부제 — 한게임풍 카드 카피. 학습 부담 낮은 한 줄. */
+private fun GameMode.subtitle(): String = when (this) {
+    GameMode.SEVEN_STUD -> "한국식 7카드 · 다이/따당/구사"
+    GameMode.SEVEN_STUD_HI_LO -> "8 or better · 하이/로우 분할"
+    GameMode.HOLDEM_NL -> "노리밋 텍사스 홀덤"
+}
+
+/** 모드 표지 이모지 — 카드 좌측 prominent 슬롯. */
+private fun GameMode.glyph(): String = when (this) {
+    GameMode.SEVEN_STUD -> "♠"
+    GameMode.SEVEN_STUD_HI_LO -> "⚖"
+    GameMode.HOLDEM_NL -> "♥"
+}
+
 @Composable
 private fun ModeCard(
     mode: GameMode,
@@ -368,40 +382,83 @@ private fun ModeCard(
     reasonIfDisabled: String? = null,
     onClick: () -> Unit,
 ) {
+    // 7스터드 계열은 lime 보더로 한국식 시그니처 모드임을 표지. 홀덤은 기존 톤 유지.
+    val isStud = mode == GameMode.SEVEN_STUD || mode == GameMode.SEVEN_STUD_HI_LO
+    val accent = when (mode) {
+        GameMode.SEVEN_STUD -> HangameColors.StudAccent
+        GameMode.SEVEN_STUD_HI_LO -> HangameColors.HiLoHiBadge
+        GameMode.HOLDEM_NL -> HangameColors.PotValue
+    }
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .height(80.dp)
+            .height(96.dp)
             .clip(RoundedCornerShape(14.dp)),
         colors = CardDefaults.cardColors(
             containerColor = if (enabled) HangameColors.SeatBgActive else HangameColors.SeatBgFolded,
         ),
+        border = if (enabled && isStud)
+            androidx.compose.foundation.BorderStroke(1.5.dp, accent.copy(alpha = 0.55f))
+        else null,
         enabled = enabled,
         onClick = onClick,
     ) {
-        Column(
+        Row(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 18.dp),
-            verticalArrangement = Arrangement.Center,
+                .padding(horizontal = 16.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            Text(
-                text = stringResource(id = mode.titleRes()),
-                style = MaterialTheme.typography.titleLarge,
-                color = if (enabled) HangameColors.TextPrimary
-                else HangameColors.TextMuted,
-                fontWeight = FontWeight.Bold,
-                maxLines = 1,
-                softWrap = false,
-                overflow = TextOverflow.Ellipsis,
-            )
-            if (!enabled && reasonIfDisabled != null) {
+            // 좌측 슈트/모드 글리프 — 64dp 원형. 한게임의 "큰 카드 아트" 슬롯 대용.
+            Box(
+                modifier = Modifier
+                    .height(64.dp)
+                    .widthIn(min = 64.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(
+                        if (enabled) HangameColors.FeltMid else HangameColors.SeatBgFolded
+                    ),
+                contentAlignment = Alignment.Center,
+            ) {
                 Text(
-                    reasonIfDisabled,
+                    text = mode.glyph(),
+                    color = if (enabled) accent else HangameColors.TextMuted,
+                    fontWeight = FontWeight.Black,
+                    style = MaterialTheme.typography.headlineMedium,
+                )
+            }
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                Text(
+                    text = stringResource(id = mode.titleRes()),
+                    style = MaterialTheme.typography.titleLarge,
+                    color = if (enabled) HangameColors.TextPrimary
+                    else HangameColors.TextMuted,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    softWrap = false,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    text = if (!enabled && reasonIfDisabled != null) reasonIfDisabled
+                    else mode.subtitle(),
                     style = MaterialTheme.typography.bodySmall,
-                    color = HangameColors.TextMuted,
+                    color = if (enabled) HangameColors.TextSecondary
+                    else HangameColors.TextMuted,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
+                )
+            }
+            // 우측 chevron — 입장 가능 시 lime 색 화살표.
+            if (enabled) {
+                Text(
+                    text = "›",
+                    color = accent,
+                    fontWeight = FontWeight.Black,
+                    style = MaterialTheme.typography.headlineSmall,
                 )
             }
         }

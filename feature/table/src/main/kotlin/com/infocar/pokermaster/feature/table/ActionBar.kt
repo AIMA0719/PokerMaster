@@ -114,8 +114,8 @@ fun ActionBar(
             if (state.canSaveLife) {
                 ActionButton(
                     label = "구사",
-                    tint = HangameColors.BtnFold,
-                    tintDark = HangameColors.BtnFoldDark,
+                    tint = HangameColors.BtnSaveLife,
+                    tintDark = HangameColors.BtnSaveLifeDark,
                     enabled = true,
                     a11y = "구사 (한국식 7스터드)",
                     onClick = { onAction(Action(ActionType.SAVE_LIFE)) },
@@ -190,7 +190,7 @@ private fun ActionButton(
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .height(44.dp)
+            .height(48.dp)
             .pressScale(enabled = enabled)
             .clip(RoundedCornerShape(8.dp))
             .background(gradient)

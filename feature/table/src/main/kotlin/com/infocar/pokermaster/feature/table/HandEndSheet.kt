@@ -83,11 +83,20 @@ fun HandEndSheet(
     val firstWinnerSeat = firstPot?.winnerSeats?.firstOrNull()
     val winnerName = firstWinnerSeat?.let { data.nicknameBySeat[it] } ?: "-"
     val winnerCategory = firstWinnerSeat?.let { data.handInfos[it] } ?: ""
-    val headerText = if (firstWinnerSeat != null) {
-        val baseSingle = stringResource(id = R.string.hand_end_single_winner, winnerName)
-        if (winnerCategory.isNotEmpty()) "$baseSingle — $winnerCategory" else baseSingle
-    } else {
-        stringResource(id = R.string.hand_end_winner)
+    val splitPot = firstPot?.takeIf {
+        data.mode == GameMode.SEVEN_STUD_HI_LO &&
+            it.hiWinnerSeats.isNotEmpty() &&
+            it.loWinnerSeats.isNotEmpty() &&
+            it.hiWinnerSeats != it.loWinnerSeats
+    }
+    val isHiLoSplit = splitPot != null
+    val headerText = when {
+        isHiLoSplit -> "하이/로우 분할"
+        firstWinnerSeat != null -> {
+            val baseSingle = stringResource(id = R.string.hand_end_single_winner, winnerName)
+            if (winnerCategory.isNotEmpty()) "$baseSingle — $winnerCategory" else baseSingle
+        }
+        else -> stringResource(id = R.string.hand_end_winner)
     }
 
     val reduceMotion = LocalReduceMotion.current
@@ -119,6 +128,28 @@ fun HandEndSheet(
                     color = HangameColors.PotValue,
                     fontWeight = FontWeight.Bold,
                 )
+                if (splitPot != null) {
+                    val hiNames = splitPot.hiWinnerSeats
+                        .mapNotNull { data.nicknameBySeat[it] }
+                        .joinToString(", ")
+                    val loNames = splitPot.loWinnerSeats
+                        .mapNotNull { data.nicknameBySeat[it] }
+                        .joinToString(", ")
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text(
+                            text = "Hi · $hiNames",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = HangameColors.HiLoHiBadge,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        Text(
+                            text = "Lo · $loNames",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = HangameColors.HiLoLoBadge,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                    }
+                }
 
                 // 2. 팟 시퀀스 (컴팩트)
                 data.pots.take(revealedPots).forEach { pot ->

@@ -147,7 +147,12 @@ private fun DistributionLine(
     amount: Long,
     emphasize: Boolean = false,
 ) {
-    val color: Color = if (emphasize) HangameColors.PotValue else HangameColors.TextLime
+    val color: Color = when (prefix) {
+        "★HL" -> HangameColors.HiLoScoopBadge
+        "★H" -> HangameColors.HiLoHiBadge
+        "★L" -> HangameColors.HiLoLoBadge
+        else -> if (emphasize) HangameColors.PotValue else HangameColors.TextLime
+    }
     val weight = if (emphasize) FontWeight.Black else FontWeight.SemiBold
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -157,7 +162,13 @@ private fun DistributionLine(
         Text(
             text = "$prefix $names",
             style = MaterialTheme.typography.labelLarge,
-            color = if (emphasize) HangameColors.PotValue else HangameColors.TextPrimary,
+            color = if (prefix in setOf("★HL", "★H", "★L")) {
+                color
+            } else if (emphasize) {
+                HangameColors.PotValue
+            } else {
+                HangameColors.TextPrimary
+            },
             fontWeight = weight,
             modifier = Modifier.weight(1f),
         )

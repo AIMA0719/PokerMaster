@@ -473,8 +473,8 @@ private fun MiniHoleCards(
 /**
  * 7스터드용 미니 카드 묶음. 시트 폭 안에 무조건 들어가도록 카드 수에 따라 자동 축소.
  *
- *  - 비-본인 + 비-쇼다운: 다운카드(face-down placeholder)는 정보가 없어 생략하고 업카드만 표시.
- *  - 본인 또는 쇼다운: 다운+업 모두 face-up 으로 표시.
+ *  - 비-본인 + 비-쇼다운: 다운카드는 카드 뒷면 슬롯으로 표시하고 업카드만 공개.
+ *  - 본인 또는 쇼다운: 다운+업 모두 face-up 으로 표시. 본인 다운카드는 highlight.
  *  - 카드 수가 5+ 면 두 줄(2-row grid)로 wrap — 단일 줄 축소(0.55~0.7x) 시
  *    슈트/랭크가 흐려지는 "거칠다" 이슈 회피. (HiLo UI bug-hunt: 7스터드 업카드 가독성)
  */
@@ -488,8 +488,26 @@ private fun MiniSeatCards(
     cardHeight: Dp,
 ) {
     val showHole = isHuman || isShowdown
-    val cards = if (showHole) holeCards + upCards else upCards
-    val n = cards.size
+    val slots = remember(holeCards, upCards, showHole, isHuman) {
+        val holeSlots = holeCards.mapIndexed { index, card ->
+            MiniSeatCardSlot(
+                key = "hole-$index-$card-${showHole}",
+                card = if (showHole) card else null,
+                faceDown = !showHole,
+                highlight = isHuman && showHole,
+            )
+        }
+        val upSlots = upCards.mapIndexed { index, card ->
+            MiniSeatCardSlot(
+                key = "up-$index-$card",
+                card = card,
+                faceDown = false,
+                highlight = false,
+            )
+        }
+        holeSlots + upSlots
+    }
+    val n = slots.size
     // HiLo UI bug-hunt: 카드 5장 이상이면 단일 줄 축소(0.55x) 대신 2-row wrap 으로 가독성 회복.
     // 4장 까지는 그대로 1-row + 약간 축소.
     val reduceMotion = LocalReduceMotion.current
@@ -500,8 +518,8 @@ private fun MiniSeatCards(
         val w = (cardWidth.value * factor).dp
         val h = (cardHeight.value * factor).dp
         Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-            for (card in cards) {
-                MiniSeatCardItem(card = card, width = w, height = h, durationMs = cardDuration)
+            for (slot in slots) {
+                MiniSeatCardItem(slot = slot, width = w, height = h, durationMs = cardDuration)
             }
         }
     } else {
@@ -510,31 +528,38 @@ private fun MiniSeatCards(
         val w = (cardWidth.value * factor).dp
         val h = (cardHeight.value * factor).dp
         val perRow = (n + 1) / 2  // 7 → 4/3, 6 → 3/3, 5 → 3/2
-        val firstRow = cards.take(perRow)
-        val secondRow = cards.drop(perRow)
+        val firstRow = slots.take(perRow)
+        val secondRow = slots.drop(perRow)
         Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                for (card in firstRow) {
-                    MiniSeatCardItem(card = card, width = w, height = h, durationMs = cardDuration)
+                for (slot in firstRow) {
+                    MiniSeatCardItem(slot = slot, width = w, height = h, durationMs = cardDuration)
                 }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                for (card in secondRow) {
-                    MiniSeatCardItem(card = card, width = w, height = h, durationMs = cardDuration)
+                for (slot in secondRow) {
+                    MiniSeatCardItem(slot = slot, width = w, height = h, durationMs = cardDuration)
                 }
             }
         }
     }
 }
 
+private data class MiniSeatCardSlot(
+    val key: String,
+    val card: Card?,
+    val faceDown: Boolean,
+    val highlight: Boolean,
+)
+
 @Composable
 private fun MiniSeatCardItem(
-    card: Card,
+    slot: MiniSeatCardSlot,
     width: Dp,
     height: Dp,
     durationMs: Int,
 ) {
-    val visibleState = remember(card) {
+    val visibleState = remember(slot.key, slot.faceDown) {
         MutableTransitionState(false).apply { targetState = true }
     }
     AnimatedVisibility(
@@ -543,7 +568,13 @@ private fun MiniSeatCardItem(
             animationSpec = tween(durationMs, easing = FastOutSlowInEasing),
         ) { -it } + fadeIn(animationSpec = tween(durationMs)),
     ) {
-        PlayingCard(card = card, faceDown = false, width = width, height = height)
+        PlayingCard(
+            card = slot.card,
+            faceDown = slot.faceDown,
+            width = width,
+            height = height,
+            highlight = slot.highlight,
+        )
     }
 }
 

@@ -757,7 +757,7 @@ private fun CenterPotDisplay(pot: Long, modifier: Modifier = Modifier) {
         verticalArrangement = Arrangement.spacedBy(1.dp),
     ) {
         Text(
-            text = "Total",
+            text = "총 팟",
             fontSize = 10.sp,
             color = HangameColors.PotLabel,
             fontWeight = FontWeight.SemiBold,
@@ -781,57 +781,99 @@ private fun CenterPotDisplay(pot: Long, modifier: Modifier = Modifier) {
 }
 
 /**
- * 7스터드 스트릿 라벨 — community row 자리에 "3rd street" 등 표기.
+ * 7스터드 스트릿 라벨 — community row 자리에 한국식 "3구/4구" 표기.
  */
 @Composable
 private fun StreetLabel(street: Street) {
-    val text = when (street) {
-        Street.THIRD -> "3rd street"
-        Street.FOURTH -> "4th street"
-        Street.FIFTH -> "5th street"
-        Street.SIXTH -> "6th street"
-        Street.SEVENTH -> "7th street"
+    val ko = when (street) {
+        Street.THIRD -> "3구"
+        Street.FOURTH -> "4구"
+        Street.FIFTH -> "5구"
+        Street.SIXTH -> "6구"
+        Street.SEVENTH -> "7구"
         Street.DECLARE -> "선언"
-        Street.SHOWDOWN -> "Showdown"
+        Street.SHOWDOWN -> "쇼다운"
         else -> "—"
     }
+    val en = when (street) {
+        Street.THIRD -> "3rd"
+        Street.FOURTH -> "4th"
+        Street.FIFTH -> "5th"
+        Street.SIXTH -> "6th"
+        Street.SEVENTH -> "7th"
+        else -> null
+    }
     Surface(
-        shape = RoundedCornerShape(8.dp),
-        color = HangameColors.HeaderBgRight.copy(alpha = 0.6f),
-        border = BorderStroke(0.5.dp, HangameColors.SeatBorder),
+        shape = RoundedCornerShape(10.dp),
+        color = HangameColors.HeaderBgRight.copy(alpha = 0.7f),
+        border = BorderStroke(0.5.dp, HangameColors.StudAccent.copy(alpha = 0.55f)),
     ) {
-        Text(
-            text = text,
+        Row(
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-            fontSize = 12.sp,
-            color = HangameColors.TextSecondary,
-            fontWeight = FontWeight.SemiBold,
-        )
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(5.dp),
+        ) {
+            Text(
+                text = ko,
+                fontSize = 13.sp,
+                color = HangameColors.StudAccent,
+                fontWeight = FontWeight.Black,
+            )
+            if (en != null) {
+                Text(
+                    text = en,
+                    fontSize = 9.sp,
+                    color = HangameColors.TextMuted,
+                    fontWeight = FontWeight.Medium,
+                )
+            }
+        }
     }
 }
 
 /**
  * 우상단 블라인드/베팅 정보 표시.
  *  - 홀덤: "SB 50 | BB 100"
- *  - 7스터드/HiLo: "앤티 10 | 브링인 25"
+ *  - 7스터드/HiLo: "7포커 · 앤티 10 | 브링인 25"
  */
 @Composable
 private fun BlindInfoBadge(state: GameState) {
     val isStud = state.mode == GameMode.SEVEN_STUD || state.mode == GameMode.SEVEN_STUD_HI_LO
+    val modePrefix = when (state.mode) {
+        GameMode.SEVEN_STUD -> "7포커"
+        GameMode.SEVEN_STUD_HI_LO -> "하이로우"
+        else -> null
+    }
     val left = if (isStud) "앤티 ${ChipFormat.format(state.config.ante)}"
     else "SB ${ChipFormat.format(state.config.smallBlind)}"
     val right = if (isStud) "브링인 ${ChipFormat.format(state.config.bringIn)}"
     else "BB ${ChipFormat.format(state.config.bigBlind)}"
+    val borderColor = if (isStud) HangameColors.StudAccent.copy(alpha = 0.55f) else HangameColors.SeatBorder
     Surface(
-        shape = RoundedCornerShape(6.dp),
-        color = HangameColors.HeaderBgRight.copy(alpha = 0.8f),
-        border = BorderStroke(0.5.dp, HangameColors.SeatBorder),
+        shape = RoundedCornerShape(8.dp),
+        color = HangameColors.HeaderBgRight.copy(alpha = 0.85f),
+        border = BorderStroke(if (isStud) 1.dp else 0.5.dp, borderColor),
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+            modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
+            if (modePrefix != null) {
+                Text(
+                    text = modePrefix,
+                    fontSize = 11.sp,
+                    color = HangameColors.StudAccent,
+                    fontWeight = FontWeight.Black,
+                    maxLines = 1,
+                    softWrap = false,
+                )
+                Text(
+                    text = "·",
+                    fontSize = 11.sp,
+                    color = HangameColors.TextMuted,
+                )
+            }
             Text(
                 text = left,
                 fontSize = 11.sp,
@@ -931,6 +973,13 @@ private fun WinnerBanner(
         .mapNotNull { data.nicknameBySeat[it] }
         .joinToString(", ")
         .ifEmpty { null }
+    val splitPot = data.pots.firstOrNull()?.takeIf {
+        data.mode == GameMode.SEVEN_STUD_HI_LO &&
+            it.hiWinnerSeats.isNotEmpty() &&
+            it.loWinnerSeats.isNotEmpty() &&
+            it.hiWinnerSeats != it.loWinnerSeats
+    }
+    val isHiLoSplit = splitPot != null
 
     val glow = pulseFloat(initial = 0.55f, target = 1f, periodMs = 850, label = "winner-glow")
 
@@ -962,15 +1011,37 @@ private fun WinnerBanner(
                 ) {
                     Text(text = "🏆", fontSize = 26.sp)
                     Text(
-                        text = if (isHumanWinner) {
-                            stringResource(id = R.string.winner_you_win)
-                        } else {
-                            stringResource(id = R.string.winner_name_wins, winnerName)
+                        text = when {
+                            isHiLoSplit -> "하이/로우 분할"
+                            isHumanWinner -> stringResource(id = R.string.winner_you_win)
+                            else -> stringResource(id = R.string.winner_name_wins, winnerName)
                         },
                         fontSize = 22.sp,
                         color = HangameColors.PotValue,
                         fontWeight = FontWeight.Black,
                     )
+                }
+                if (splitPot != null) {
+                    val hiNames = splitPot.hiWinnerSeats
+                        .mapNotNull { data.nicknameBySeat[it] }
+                        .joinToString(", ")
+                    val loNames = splitPot.loWinnerSeats
+                        .mapNotNull { data.nicknameBySeat[it] }
+                        .joinToString(", ")
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text(
+                            text = "Hi · $hiNames",
+                            fontSize = 12.sp,
+                            color = HangameColors.HiLoHiBadge,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        Text(
+                            text = "Lo · $loNames",
+                            fontSize = 12.sp,
+                            color = HangameColors.HiLoLoBadge,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                    }
                 }
                 if (isHumanWinner) {
                     Text(
