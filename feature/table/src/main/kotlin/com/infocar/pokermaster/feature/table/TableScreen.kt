@@ -232,11 +232,14 @@ fun TableScreen(
 
     // A11y 설정 — 고대비 카드는 PlayingCard 가 LocalHighContrastCards 로 받는다.
     val a11ySettings by settingsRepo.a11ySettings.collectAsState(initial = A11ySettings.Default)
+    // UI-Images: opt-in 이미지 카드 모드 (CC0 PNG). 기본 false → 기존 Canvas 경로.
+    val useImageCards by settingsRepo.useImageCards.collectAsState(initial = false)
 
     CompositionLocalProvider(
         LocalHighContrastCards provides a11ySettings.highContrastCards,
         LocalReduceMotion provides a11ySettings.reduceMotion,
         LocalAnnounceActions provides a11ySettings.announceActionsAudibly,
+        LocalUseImageCards provides useImageCards,
     ) {
     Box(modifier = Modifier.fillMaxSize()) {
         TableContent(
@@ -436,6 +439,12 @@ internal fun TableContent(
 
 /**
  * 한게임 풍 펠트 — 타원 라디얼 그라데이션 + 외곽 보더.
+ *
+ * UI-Images TODO: opt-in 이미지 모드(LocalUseImageCards=true) 가 켜졌을 때 이 자리 위에
+ * `Modifier.paint(painterResource(R.drawable.felt_bg), contentScale = ContentScale.Crop)` 로
+ * CC0 felt 텍스처를 덧입히는 옵션을 추가할 것. 현재는 검증 가능한 CC0 felt 텍스처를
+ * 확보하지 못해 (Kenney boardgame-pack 미포함) 그라데이션 폴백만 유지한다.
+ * `feature/table/src/main/res/drawable-nodpi/felt_bg.png` 파일을 드롭한 뒤 활성화.
  */
 @Composable
 private fun HangameFelt(modifier: Modifier = Modifier) {

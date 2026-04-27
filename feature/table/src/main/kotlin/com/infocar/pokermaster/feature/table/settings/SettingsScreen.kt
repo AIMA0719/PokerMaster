@@ -139,6 +139,19 @@ fun SettingsScreen(
                     }
                 }
 
+                SectionCard("외관") {
+                    Text(
+                        "이미지 카드(베타). CC0 카드 페이스 PNG 자산을 사용. 끄면 기본 자체 렌더링.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = HangameColors.TextSecondary,
+                    )
+                    ToggleRow(
+                        label = "이미지 카드 사용",
+                        checked = state.useImageCards,
+                        onChange = viewModel::setUseImageCards,
+                    )
+                }
+
                 SectionCard("일반") {
                     ToggleRow(
                         label = "효과음",

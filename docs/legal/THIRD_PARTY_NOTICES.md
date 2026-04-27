@@ -104,6 +104,15 @@
 표준 52장 카드 그래픽은 자체 일러스트로 제작 또는 CC0 자산을 사용합니다.
 한게임/피망 등 타사의 카드 디자인·아바타·BGM 은 사용하지 않습니다.
 
+이미지 자산(카드 PNG 등)의 출처/라이선스 상세는 [ASSET_NOTICES.md](./ASSET_NOTICES.md) 참고.
+
+### Kenney Boardgame Pack v2 (opt-in 이미지 카드)
+- 라이선스: Creative Commons Zero (CC0 1.0)
+- 저작권자: Kenney Vleugels
+- 출처: https://kenney.nl/assets/boardgame-pack
+- 사용처: `feature/table/.../drawable-nodpi/card_*_*.png` (52장 face) + `card_back.png` (1장)
+- 활성화: 설정 > 외관 > "이미지 카드 사용" 토글 (기본 OFF)
+
 ---
 
 ## 감사 사이클
