@@ -43,6 +43,12 @@ data class GameState(
     val pendingShowdown: ShowdownSummary? = null,
     /** 핸드 종료 후 다음 핸드 대기. UI 가 [pendingShowdown] 소비 후 'Next Hand' 누르면 풀림. */
     val paused: Boolean = false,
+    /**
+     * 7-Stud Hi-Lo 한국식 declare 단계에서 좌석별 선언. [Street.DECLARE] 단계에서만 채워짐.
+     * 키 = seat, 값 = HIGH/LOW/SWING. 폴드한 좌석은 포함되지 않음.
+     * SHOWDOWN 으로 전이된 후에도 분배 산정용으로 유지(다음 startHand 가 비움).
+     */
+    val declarations: Map<Int, Declaration> = emptyMap(),
 ) {
     /** 살아있는 좌석들 (폴드 아닌). */
     val alivePlayers: List<PlayerState> get() = players.filter { it.alive }

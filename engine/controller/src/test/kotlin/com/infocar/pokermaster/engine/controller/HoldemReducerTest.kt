@@ -9,6 +9,7 @@ import com.infocar.pokermaster.core.model.Street
 import com.infocar.pokermaster.core.model.TableConfig
 import com.infocar.pokermaster.engine.rules.Rng
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.assertThrows
 
 class HoldemReducerTest {
 
@@ -228,5 +229,83 @@ class HoldemReducerTest {
         val v1 = s.stateVersion
         s = HoldemReducer.act(s, 1, Action(ActionType.CHECK), rng)
         assertThat(s.stateVersion).isGreaterThan(v1)
+    }
+
+    // -------------------------------------------------- A4: 잘못된 좌석 액션 → IAE
+
+    /**
+     * A4 — `toActSeat` 이 아닌 좌석에서 액션을 시도하면 require trip → IAE.
+     * (`HoldemReducer.kt` 117-121 require 가 IAE 던지는지 명시 검증.)
+     */
+    @Test fun acting_out_of_turn_throws_illegal_argument() {
+        val rng = deterministicRng(31L)
+        val s = HoldemReducer.startHand(config, players(10_000, 10_000), null, rng, 1L, 0L)
+        val toAct = s.toActSeat!!
+        val wrongSeat = s.players.first { it.seat != toAct }.seat
+        assertThrows<IllegalArgumentException> {
+            HoldemReducer.act(s, wrongSeat, Action(ActionType.CALL), rng)
+        }
+    }
+
+    // -------------------------------------------------- A5: all-in less-than-min raise 후속 raise 강등
+
+    /**
+     * A5 — all-in less-than-min-raise 시 `reopenAction = false` (HoldemReducer 235행). 다음 액터가
+     * RAISE 를 시도해도 [HoldemReducer.applyBetOrRaise] 가 reopenAction false 분기에서 CALL 로 강등.
+     * (call/check 만 가능 — 추가 raise 닫힘.)
+     *
+     * 시나리오 (3-way, BTN=0, SB=1, BB=2):
+     *  1. BTN 가 200 으로 풀 raise (lastFullRaise=150, betToCall=200).
+     *  2. SB 가 칩 부족 상태에서 less-than-min-raise all-in (예: 250 = 50 raise; 50 < 150 → not full).
+     *  3. reopenAction false 가 됨.
+     *  4. BB(=초기 act 안 함)가 RAISE 시도 → applyBetOrRaise 진입 후 reopenAction false 분기 →
+     *     betToCall > committedThisStreet 이면 CALL 로 강등.
+     */
+    @Test fun all_in_less_than_min_raise_demotes_subsequent_raise_to_call() {
+        val cfg = config.copy(seats = 3)
+        val rng = deterministicRng(73L)
+        var s = HoldemReducer.startHand(
+            config = cfg,
+            players = listOf(
+                PlayerState(0, "P0", isHuman = true, chips = 10_000),
+                PlayerState(1, "P1", isHuman = false, personaId = "PRO", chips = 250L),  // 25 SB → 225 chips
+                PlayerState(2, "P2", isHuman = false, personaId = "PRO", chips = 10_000),
+            ),
+            prevBtnSeat = null,
+            rng = rng,
+            handIndex = 1L,
+            startingVersion = 0L,
+        )
+        // 3-way preflop 액션 순서: BTN(0) → SB(1) → BB(2).
+        assertThat(s.toActSeat).isEqualTo(0)
+
+        // 1) BTN raise to 200 (full raise; lastFullRaise = 150).
+        s = HoldemReducer.act(s, 0, Action(ActionType.RAISE, 200L), rng)
+        assertThat(s.betToCall).isEqualTo(200L)
+        assertThat(s.lastFullRaiseAmount).isEqualTo(150L)
+        assertThat(s.reopenAction).isTrue()
+
+        // 2) SB all-in for 250 total (=25 SB + 225 chips). 200 → 250 = 50 raise increment.
+        //    50 < lastFullRaise(150) → less-than-min-raise → reopenAction = false.
+        assertThat(s.toActSeat).isEqualTo(1)
+        s = HoldemReducer.act(s, 1, Action(ActionType.ALL_IN), rng)
+        assertThat(s.players[1].allIn).isTrue()
+        assertThat(s.reopenAction).isFalse()
+        val betAfterSbAllIn = s.betToCall
+        assertThat(betAfterSbAllIn).isEqualTo(250L)
+
+        // 3) BB(=2) tries RAISE → reopenAction false → call 로 강등.
+        assertThat(s.toActSeat).isEqualTo(2)
+        val bbBefore = s.players[2].committedThisStreet
+        s = HoldemReducer.act(s, 2, Action(ActionType.RAISE, 1000L), rng)
+        val bbAfter = s.players[2]
+        // betToCall 변경 안 됨 — raise 가 강등되어 진행 안 됨.
+        assertThat(s.betToCall).isEqualTo(betAfterSbAllIn)
+        // BB 가 committed 한 칩은 250(=call 매칭) 이며 1000 raise 금액에 도달하지 않음.
+        assertThat(bbAfter.committedThisStreet).isEqualTo(250L)
+        assertThat(bbAfter.committedThisStreet - bbBefore).isLessThan(1000L)
+        // raise 가 강등되었으므로 lastAggressorSeat 갱신 안 됨 (BTN=0 또는 SB=1 그대로 유지 가능 —
+        // applyCall 은 lastAggressor 변경 안 함).
+        assertThat(s.lastAggressorSeat).isNotEqualTo(2)
     }
 }
