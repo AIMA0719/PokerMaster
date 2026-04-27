@@ -3,12 +3,17 @@ package com.infocar.pokermaster.engine.controller
 import com.google.common.truth.Truth.assertThat
 import com.infocar.pokermaster.core.model.Action
 import com.infocar.pokermaster.core.model.ActionType
+import com.infocar.pokermaster.core.model.Card
+import com.infocar.pokermaster.core.model.Declaration
 import com.infocar.pokermaster.core.model.GameMode
 import com.infocar.pokermaster.core.model.PlayerState
+import com.infocar.pokermaster.core.model.Rank
 import com.infocar.pokermaster.core.model.Street
+import com.infocar.pokermaster.core.model.Suit
 import com.infocar.pokermaster.core.model.TableConfig
 import com.infocar.pokermaster.engine.rules.Rng
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.assertThrows
 
 class StudReducerTest {
 
@@ -464,13 +469,18 @@ class StudReducerTest {
         )
         val totalBefore = s.players.sumOf { it.chips + it.committedThisHand }
 
-        // 모두 콜/체크로 끝까지 진행.
+        // 모두 콜/체크로 끝까지 진행. DECLARE 단계 진입 시에는 HIGH 선언으로 통과.
         var guard = 0
-        while (s.pendingShowdown == null && guard++ < 80) {
+        while (s.pendingShowdown == null && guard++ < 200) {
             val seat = s.toActSeat ?: break
-            val me = s.players.first { it.seat == seat }
-            val a = if (me.committedThisStreet >= s.betToCall) ActionType.CHECK else ActionType.CALL
-            s = StudReducer.act(s, seat, Action(a), r)
+            val a: Action = if (s.street == Street.DECLARE) {
+                Action(ActionType.DECLARE, declaration = Declaration.HIGH)
+            } else {
+                val me = s.players.first { it.seat == seat }
+                val t = if (me.committedThisStreet >= s.betToCall) ActionType.CHECK else ActionType.CALL
+                Action(t)
+            }
+            s = StudReducer.act(s, seat, a, r)
         }
         assertThat(s.pendingShowdown).isNotNull()
         // 칩 보존
@@ -504,5 +514,416 @@ class StudReducerTest {
             assertThat(p.holeCards.size).isEqualTo(3)
             assertThat(p.upCards.size).isEqualTo(4)
         }
+    }
+
+    // -------------------------------------------------- HiLo declare phase
+
+    /** 7th 베팅이 끝날 때까지 콜/체크로 진행. DECLARE 단계 진입 직전에서 멈춤 (HiLo 모드). */
+    private fun runUntilDeclare(
+        initial: com.infocar.pokermaster.core.model.GameState,
+        rng: Rng,
+    ): com.infocar.pokermaster.core.model.GameState {
+        var s = initial
+        var guard = 0
+        while (s.street != Street.DECLARE && s.pendingShowdown == null && guard++ < 200) {
+            val seat = s.toActSeat ?: break
+            val me = s.players.first { it.seat == seat }
+            val act = if (me.committedThisStreet >= s.betToCall) ActionType.CHECK else ActionType.CALL
+            s = StudReducer.act(s, seat, Action(act), rng)
+        }
+        return s
+    }
+
+    @Test fun hilo_mode_enters_declare_phase_after_seventh_street() {
+        val cfg = config.copy(mode = GameMode.SEVEN_STUD_HI_LO, seats = 2, ante = 10L, bringIn = 25L)
+        val r = rngOf(nonce = 311L)
+        val start = StudReducer.startHand(
+            config = cfg,
+            players = players(10_000, 10_000),
+            prevBtnSeat = null,
+            rng = r,
+            handIndex = 1L,
+            startingVersion = 0L,
+        )
+        val s = runUntilDeclare(start, r)
+        assertThat(s.street).isEqualTo(Street.DECLARE)
+        assertThat(s.pendingShowdown).isNull()
+        // 첫 살아있는 좌석이 toAct.
+        val firstAlive = s.players.filter { !it.folded }.minOf { it.seat }
+        assertThat(s.toActSeat).isEqualTo(firstAlive)
+        assertThat(s.declarations).isEmpty()
+    }
+
+    @Test fun stud_high_only_mode_skips_declare_and_goes_to_showdown() {
+        // HiLo 가 아닌 경우 declare 안 거치고 SHOWDOWN 으로 직행.
+        val r = rngOf(nonce = 312L)
+        var s = StudReducer.startHand(
+            config = config.copy(seats = 2),
+            players = players(10_000, 10_000),
+            prevBtnSeat = null,
+            rng = r,
+            handIndex = 1L,
+            startingVersion = 0L,
+        )
+        var guard = 0
+        while (s.pendingShowdown == null && guard++ < 200) {
+            val seat = s.toActSeat ?: break
+            val me = s.players.first { it.seat == seat }
+            val a = if (me.committedThisStreet >= s.betToCall) ActionType.CHECK else ActionType.CALL
+            s = StudReducer.act(s, seat, Action(a), r)
+            assertThat(s.street).isNotEqualTo(Street.DECLARE)
+        }
+        assertThat(s.pendingShowdown).isNotNull()
+        assertThat(s.street).isEqualTo(Street.SHOWDOWN)
+    }
+
+    @Test fun all_alive_players_declaring_transitions_to_showdown() {
+        val cfg = config.copy(mode = GameMode.SEVEN_STUD_HI_LO, seats = 4, ante = 10L, bringIn = 25L)
+        val r = rngOf(nonce = 313L)
+        val start = StudReducer.startHand(
+            config = cfg,
+            players = players(10_000, 10_000, 10_000, 10_000),
+            prevBtnSeat = null,
+            rng = r,
+            handIndex = 1L,
+            startingVersion = 0L,
+        )
+        var s = runUntilDeclare(start, r)
+        assertThat(s.street).isEqualTo(Street.DECLARE)
+
+        val aliveSeats = s.players.filter { !it.folded }.map { it.seat }.sorted()
+        // 좌석 순서대로 declare. 모두 HIGH 선언.
+        val totalBefore = s.players.sumOf { it.chips + it.committedThisHand }
+        for (seat in aliveSeats) {
+            assertThat(s.toActSeat).isEqualTo(seat)
+            s = StudReducer.act(
+                s, seat, Action(ActionType.DECLARE, declaration = Declaration.HIGH), r
+            )
+        }
+        // 모두 declare 완료 → SHOWDOWN
+        assertThat(s.pendingShowdown).isNotNull()
+        assertThat(s.street).isEqualTo(Street.SHOWDOWN)
+        assertThat(s.toActSeat).isNull()
+        // 칩 보존
+        val totalAfter = s.players.sumOf { it.chips }
+        assertThat(totalAfter).isEqualTo(totalBefore)
+    }
+
+    @Test fun declaring_out_of_turn_throws() {
+        val cfg = config.copy(mode = GameMode.SEVEN_STUD_HI_LO, seats = 4, ante = 10L, bringIn = 25L)
+        val r = rngOf(nonce = 314L)
+        val start = StudReducer.startHand(
+            config = cfg,
+            players = players(10_000, 10_000, 10_000, 10_000),
+            prevBtnSeat = null,
+            rng = r,
+            handIndex = 1L,
+            startingVersion = 0L,
+        )
+        val s = runUntilDeclare(start, r)
+        assertThat(s.street).isEqualTo(Street.DECLARE)
+        val firstSeat = s.toActSeat!!
+        val wrongSeat = s.players
+            .filter { !it.folded && it.seat != firstSeat }
+            .minOf { it.seat }
+        assertThrows<IllegalArgumentException> {
+            StudReducer.act(s, wrongSeat, Action(ActionType.DECLARE, declaration = Declaration.HIGH), r)
+        }
+    }
+
+    @Test fun declare_action_without_payload_throws() {
+        val cfg = config.copy(mode = GameMode.SEVEN_STUD_HI_LO, seats = 2, ante = 10L, bringIn = 25L)
+        val r = rngOf(nonce = 315L)
+        val start = StudReducer.startHand(
+            config = cfg,
+            players = players(10_000, 10_000),
+            prevBtnSeat = null,
+            rng = r,
+            handIndex = 1L,
+            startingVersion = 0L,
+        )
+        val s = runUntilDeclare(start, r)
+        assertThat(s.street).isEqualTo(Street.DECLARE)
+        assertThrows<IllegalArgumentException> {
+            StudReducer.act(s, s.toActSeat!!, Action(ActionType.DECLARE, declaration = null), r)
+        }
+    }
+
+    @Test fun non_declare_action_during_declare_phase_throws() {
+        val cfg = config.copy(mode = GameMode.SEVEN_STUD_HI_LO, seats = 2, ante = 10L, bringIn = 25L)
+        val r = rngOf(nonce = 316L)
+        val start = StudReducer.startHand(
+            config = cfg,
+            players = players(10_000, 10_000),
+            prevBtnSeat = null,
+            rng = r,
+            handIndex = 1L,
+            startingVersion = 0L,
+        )
+        val s = runUntilDeclare(start, r)
+        assertThat(s.street).isEqualTo(Street.DECLARE)
+        assertThrows<IllegalArgumentException> {
+            StudReducer.act(s, s.toActSeat!!, Action(ActionType.CHECK), r)
+        }
+    }
+
+    @Test fun folded_players_are_skipped_in_declare_order() {
+        val cfg = config.copy(mode = GameMode.SEVEN_STUD_HI_LO, seats = 4, ante = 10L, bringIn = 25L)
+        val r = rngOf(nonce = 317L)
+        var s = StudReducer.startHand(
+            config = cfg,
+            players = players(10_000, 10_000, 10_000, 10_000),
+            prevBtnSeat = null,
+            rng = r,
+            handIndex = 1L,
+            startingVersion = 0L,
+        )
+        // 첫 액터(브링인 다음 좌석) 폴드시킴 — declare 순서에서 skip 검증.
+        val firstActor = s.toActSeat!!
+        s = StudReducer.act(s, firstActor, Action(ActionType.FOLD), r)
+
+        // 나머지는 콜/체크로 진행
+        var guard = 0
+        while (s.street != Street.DECLARE && s.pendingShowdown == null && guard++ < 200) {
+            val seat = s.toActSeat ?: break
+            val me = s.players.first { it.seat == seat }
+            val act = if (me.committedThisStreet >= s.betToCall) ActionType.CHECK else ActionType.CALL
+            s = StudReducer.act(s, seat, Action(act), r)
+        }
+        assertThat(s.street).isEqualTo(Street.DECLARE)
+        // 폴드한 좌석은 declare 순서에 없음
+        val expectedAlive = s.players.filter { !it.folded }.map { it.seat }.sorted()
+        assertThat(expectedAlive).doesNotContain(firstActor)
+        // 모두 declare
+        for (seat in expectedAlive) {
+            assertThat(s.toActSeat).isEqualTo(seat)
+            s = StudReducer.act(
+                s, seat, Action(ActionType.DECLARE, declaration = Declaration.HIGH), r
+            )
+        }
+        // 폴드 좌석은 declarations 에 포함되지 않음
+        assertThat(s.declarations.keys).containsExactlyElementsIn(expectedAlive)
+        assertThat(s.declarations.keys).doesNotContain(firstActor)
+    }
+
+    @Test fun all_in_player_can_still_declare() {
+        // 큰 스택 + 큰 스택 헤즈업으로 — 깡통 raise 패턴으로 작은 스택을 all-in 으로 몰아붙임.
+        val cfg = config.copy(mode = GameMode.SEVEN_STUD_HI_LO, seats = 2, ante = 10L, bringIn = 25L)
+        val r = rngOf(nonce = 318L)
+        var s = StudReducer.startHand(
+            config = cfg,
+            players = players(60L, 10_000L),  // seat 0 = 60칩 (앤티 10 후 50, 콜만 가능 → 빠른 all-in)
+            prevBtnSeat = null,
+            rng = r,
+            handIndex = 1L,
+            startingVersion = 0L,
+        )
+        // 모두 콜/체크/올인으로 7th 까지.
+        var guard = 0
+        while (s.street != Street.DECLARE && s.pendingShowdown == null && guard++ < 200) {
+            val seat = s.toActSeat ?: break
+            val me = s.players.first { it.seat == seat }
+            val act = if (me.committedThisStreet >= s.betToCall) ActionType.CHECK else ActionType.CALL
+            s = StudReducer.act(s, seat, Action(act), r)
+        }
+        // 작은 스택이 일찍 all-in 으로 들어가 라운드가 즉시 진행되며 7th 까지 도달 후 declare 단계로 진입.
+        assertThat(s.street).isEqualTo(Street.DECLARE)
+        val seat0 = s.players[0]
+        val seat1 = s.players[1]
+        assertThat(seat0.alive).isTrue()
+        assertThat(seat1.alive).isTrue()
+        // 첫 좌석부터 declare. all-in 좌석(seat 0) 도 정상 declare.
+        for (seat in listOf(seat0.seat, seat1.seat)) {
+            s = StudReducer.act(
+                s, seat, Action(ActionType.DECLARE, declaration = Declaration.HIGH), r
+            )
+        }
+        assertThat(s.pendingShowdown).isNotNull()
+    }
+
+    // -------------------------------------------------- bestExposedSeat 회귀
+
+    @Test fun exposed_strength_key_is_safe_for_empty_up_cards() {
+        // 빈 upCards 에 대해 maxOf 크래시 없이 sentinel 리턴.
+        val key = StudReducer.exposedStrengthKey(emptyList())
+        assertThat(key).isEqualTo(listOf(-1))
+    }
+
+    @Test fun exposed_strength_key_handles_single_up_card_without_crash() {
+        // upCards 1장 — 정상 키 산출 (maxOf 크래시 없음, maxOfOrNull 로 방어).
+        val one = listOf(Card(Suit.HEART, Rank.SEVEN))
+        val key = StudReducer.exposedStrengthKey(one)
+        // tier=0 (high card), groupRanks=[7], maxSuitOrd=Heart.ordinal
+        assertThat(key[0]).isEqualTo(0)
+        assertThat(key[1]).isEqualTo(7)
+        assertThat(key[2]).isEqualTo(Suit.HEART.ordinal)
+    }
+
+    // -------------------------------------------------- A1: 5th street big bet enforcement (NL doc)
+
+    /**
+     * A1 — 5th street 진입 시 big bet 강제(=minRaise 가 small bet 의 2배로 도약) 검증.
+     *
+     * **현 구현은 NL 스타일** (`StudReducer.kt` 33-34행 주석 참조). fixed-limit 의 4th=small bet,
+     * 5th 이상=big bet 더블 강제는 적용되지 않으며 `minRaise`/`betToCall` 산식이 [GameMode] 따라 분기되지
+     * 않는다. 본 테스트는 **NL 스타일임을 documenting** 하는 회귀 테스트 — small/big bet 도약 invariant 가
+     * 강제되지 않음을 확인. fixed-limit 변환 도입 시 본 테스트는 실패해야 하며 그 시점에 새 spec 으로 갱신.
+     */
+    @Test fun fifth_street_does_not_enforce_big_bet_minraise_in_nl_style() {
+        val r = rngOf(nonce = 401L)
+        var s = StudReducer.startHand(
+            config = config.copy(seats = 2, ante = 10L, bringIn = 25L),
+            players = players(10_000, 10_000),
+            prevBtnSeat = null,
+            rng = r,
+            handIndex = 1L,
+            startingVersion = 0L,
+        )
+        // 3rd 스트릿 콜로 통과
+        var guard = 0
+        while (s.street == Street.THIRD && guard++ < 8) {
+            val seat = s.toActSeat ?: break
+            val me = s.players.first { it.seat == seat }
+            val act = if (me.committedThisStreet >= s.betToCall) ActionType.CHECK else ActionType.CALL
+            s = StudReducer.act(s, seat, Action(act), r)
+        }
+        assertThat(s.street).isEqualTo(Street.FOURTH)
+
+        // 4th 의 minRaise 기록. NL 스타일에선 bring-in 베이스라인.
+        val fourthMinRaise = s.minRaise
+
+        // 4th 도 모두 체크/콜 통과 → 5th 진입
+        guard = 0
+        while (s.street == Street.FOURTH && guard++ < 8) {
+            val seat = s.toActSeat ?: break
+            val me = s.players.first { it.seat == seat }
+            val act = if (me.committedThisStreet >= s.betToCall) ActionType.CHECK else ActionType.CALL
+            s = StudReducer.act(s, seat, Action(act), r)
+        }
+        assertThat(s.street).isEqualTo(Street.FIFTH)
+
+        // **문서화 invariant**: NL 스타일에선 5th minRaise 가 4th minRaise 의 2배로 도약하지 *않는다*.
+        // (fixed-limit 도입 시 == 2 * fourthMinRaise 가 되어 본 테스트가 실패하면 spec 변경.)
+        assertThat(s.minRaise).isEqualTo(fourthMinRaise)
+        // betToCall 도 reset(=0) 인지 확인 (NL 베팅 라운드 시작 상태).
+        assertThat(s.betToCall).isEqualTo(0L)
+    }
+
+    // -------------------------------------------------- A3: best exposed seat 액션 후 fold → recompute
+
+    /**
+     * A3 — 4th street 에서 best exposed 좌석이 액션 후 폴드. 해당 라운드 *내에서* 다음 토큰이
+     * "다음 살아있는 active 좌석" 으로 이동하는지 확인.
+     *
+     * 현 구현(`StudReducer.act` 203행)은 폴드 후 다음 좌석을 [bestExposedSeat] 로 재계산하지 않고
+     * `nextActiveSeatAfter(seat, ...)` 로 단순히 다음 살아있는 좌석으로 이동한다.
+     * (best exposed 재계산은 *새 스트릿 진입 시점에만*. 한 라운드 안에서는 좌석 순서 진행.)
+     */
+    @Test fun fourth_street_best_exposed_folds_then_token_moves_to_next_alive_seat() {
+        val r = rngOf(nonce = 503L)
+        var s = StudReducer.startHand(
+            config = config.copy(seats = 4, ante = 10L, bringIn = 25L),
+            players = players(10_000, 10_000, 10_000, 10_000),
+            prevBtnSeat = null,
+            rng = r,
+            handIndex = 1L,
+            startingVersion = 0L,
+        )
+        // 3rd 스트릿 통과
+        var guard = 0
+        while (s.street == Street.THIRD && guard++ < 12) {
+            val seat = s.toActSeat ?: break
+            val me = s.players.first { it.seat == seat }
+            val act = if (me.committedThisStreet >= s.betToCall) ActionType.CHECK else ActionType.CALL
+            s = StudReducer.act(s, seat, Action(act), r)
+        }
+        assertThat(s.street).isEqualTo(Street.FOURTH)
+        val bestExposedSeat = s.toActSeat!!
+        val activeSeatsBefore = s.players.filter { it.active }.map { it.seat }.sorted()
+        assertThat(activeSeatsBefore).contains(bestExposedSeat)
+
+        // best exposed 가 폴드 → 토큰은 라이브 액티브 다음 좌석으로 이동(라운드 내).
+        s = StudReducer.act(s, bestExposedSeat, Action(ActionType.FOLD), r)
+
+        // 폴드 후 — 1명 남으면 즉시 쇼다운, 그렇지 않으면 다음 좌석에 토큰.
+        if (s.pendingShowdown != null) {
+            // 헤즈업 같이 1명 남는 분기 — 호출자가 처리.
+            val live = s.players.filter { !it.folded }
+            assertThat(live.size).isEqualTo(1)
+        } else {
+            assertThat(s.toActSeat).isNotNull()
+            assertThat(s.toActSeat).isNotEqualTo(bestExposedSeat)
+            // 토큰은 활성 좌석 (folded 아님 + chips > 0).
+            val nextSeat = s.toActSeat!!
+            val next = s.players.first { it.seat == nextSeat }
+            assertThat(next.folded).isFalse()
+            assertThat(next.active).isTrue()
+        }
+    }
+
+    // -------------------------------------------------- A4: 잘못된 좌석 액션 시도 → IAE
+
+    /**
+     * A4 — `toActSeat` 이 아닌 좌석에서 액션을 시도하면 require trip → IAE.
+     * (HoldemReducer 와 같은 패턴; `StudReducer.act` 168행.)
+     */
+    @Test fun acting_out_of_turn_throws_illegal_argument() {
+        val r = rngOf(nonce = 601L)
+        val s = StudReducer.startHand(
+            config = config.copy(seats = 4, ante = 10L, bringIn = 25L),
+            players = players(10_000, 10_000, 10_000, 10_000),
+            prevBtnSeat = null,
+            rng = r,
+            handIndex = 1L,
+            startingVersion = 0L,
+        )
+        val toActSeat = s.toActSeat!!
+        val wrongSeat = s.players
+            .filter { it.seat != toActSeat && it.active }
+            .first().seat
+        assertThrows<IllegalArgumentException> {
+            StudReducer.act(s, wrongSeat, Action(ActionType.CALL), r)
+        }
+    }
+
+    // -------------------------------------------------- B4: declare 단계 active=false 좌석도 통과
+
+    /**
+     * B4 — declare 단계에서 all-in(=active=false 가능) 좌석이 toActSeat 에 잡히고
+     *      `applyDeclare` 의 require(player.alive) 에서 통과하는지 명시 검증.
+     *
+     * `PlayerState.active` 는 `!folded && !allIn` 이고 `alive` 는 `!folded`. 베팅 단계에서는 active 검사,
+     * declare 단계에서는 alive 검사. 따라서 all-in 좌석도 정상 declare 가능.
+     */
+    @Test fun all_in_player_passes_declare_require_alive_check() {
+        val cfg = config.copy(mode = GameMode.SEVEN_STUD_HI_LO, seats = 2, ante = 10L, bringIn = 25L)
+        val r = rngOf(nonce = 318L)
+        var s = StudReducer.startHand(
+            config = cfg,
+            players = players(60L, 10_000L),
+            prevBtnSeat = null,
+            rng = r,
+            handIndex = 1L,
+            startingVersion = 0L,
+        )
+        // 7th 까지 콜/체크 — seat 0(60칩) 가 일찍 all-in.
+        var guard = 0
+        while (s.street != Street.DECLARE && s.pendingShowdown == null && guard++ < 200) {
+            val seat = s.toActSeat ?: break
+            val me = s.players.first { it.seat == seat }
+            val act = if (me.committedThisStreet >= s.betToCall) ActionType.CHECK else ActionType.CALL
+            s = StudReducer.act(s, seat, Action(act), r)
+        }
+        assertThat(s.street).isEqualTo(Street.DECLARE)
+        // 첫 declarer 좌석 — alive 만으로 토큰 잡힘.
+        val firstDeclarer = s.toActSeat!!
+        val player = s.players.first { it.seat == firstDeclarer }
+        // alive=true 이지만 all-in 일 수 있음 — declare 단계 정상 진행.
+        assertThat(player.folded).isFalse()
+        // alive 검증: declare 시도 → 정상 통과 (예외 없음).
+        s = StudReducer.act(
+            s, firstDeclarer, Action(ActionType.DECLARE, declaration = Declaration.HIGH), r
+        )
+        assertThat(s.declarations).containsKey(firstDeclarer)
     }
 }

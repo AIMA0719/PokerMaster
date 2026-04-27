@@ -203,7 +203,7 @@ private fun CardFace(
             verticalArrangement = Arrangement.spacedBy(0.dp),
         ) {
             Text(
-                text = card.rank.short,
+                text = card.rank.displayShort(),
                 color = suitColor,
                 fontSize = rankSp.sp,
                 fontWeight = FontWeight.Bold,
@@ -225,7 +225,7 @@ private fun CardFace(
         ) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(
-                    text = card.rank.short,
+                    text = card.rank.displayShort(),
                     color = suitColor,
                     fontSize = rankSp.sp,
                     fontWeight = FontWeight.Bold,
@@ -250,6 +250,8 @@ private fun CardFace(
         )
     }
 }
+
+private fun Rank.displayShort(): String = if (this == Rank.TEN) "10" else short
 
 @Composable
 private fun CardBack(

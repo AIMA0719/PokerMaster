@@ -10,10 +10,12 @@ import com.infocar.pokermaster.core.data.wallet.BuyInResult
 import com.infocar.pokermaster.core.data.wallet.WalletRepository
 import com.infocar.pokermaster.core.model.Action
 import com.infocar.pokermaster.core.model.ActionType
+import com.infocar.pokermaster.core.model.Declaration
 import com.infocar.pokermaster.core.model.GameMode
 import com.infocar.pokermaster.core.model.GameState
 import com.infocar.pokermaster.core.model.PlayerState
 import com.infocar.pokermaster.core.model.ShowdownSummary
+import com.infocar.pokermaster.core.model.Street
 import com.infocar.pokermaster.core.model.TableConfig
 import com.infocar.pokermaster.engine.controller.GameController
 import com.infocar.pokermaster.engine.controller.ResumeSeed
@@ -31,6 +33,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * 테이블 화면 ViewModel. [GameController] 를 감싸 [StateFlow] 로 UI 에 노출.
@@ -95,6 +98,14 @@ class TableViewModel private constructor(
 
     // M6-C: 마지막 settle 중복 방지 플래그.
     private var settled: Boolean = false
+
+    /**
+     * 감사 결과 #2 fix: 사람 액션 in-flight 가드. ActionBar/DeclareSheet 의 AtomicLong throttle
+     * 이 1차 방어선이고, 이건 ViewModel 레벨 2차 방어선 — 서로 다른 컴포저블에서 같은 toAct 좌석을
+     * 향해 거의 동시에 humanAct 가 호출돼도 두 번 reduce 되지 않게 함.
+     * humanAct → reduceAct 종료까지 한 번에 한 호출만 통과. 액션이 끝나면 즉시 풀린다.
+     */
+    private val humanActionInFlight = AtomicBoolean(false)
 
     /** 쇼다운 후 자동 다음 핸드까지 대기 시간(초). 사용자 룰: "한 판 끝나고 다음 판까지 3초". */
     private val autoNextDelaySeconds = 3
@@ -167,30 +178,52 @@ class TableViewModel private constructor(
     // ---------------------------------------------------------------- Actions
 
     fun onHumanAction(action: Action) {
+        // 감사 결과 #2: in-flight 가드. 동시에 두 번 진입 시 두 번째 호출은 즉시 폐기.
+        if (!humanActionInFlight.compareAndSet(false, true)) {
+            android.util.Log.w("TableVM", "onHumanAction dropped: another human action in flight")
+            return
+        }
+        try {
+            val s = _state.value
+            val seat = s.toActSeat
+            if (seat == null) {
+                android.util.Log.w("TableVM", "onHumanAction dropped: toActSeat=null")
+                return
+            }
+            val p = s.players.firstOrNull { it.seat == seat }
+            if (p == null) {
+                android.util.Log.w("TableVM", "onHumanAction dropped: no player at seat=$seat")
+                return
+            }
+            if (!p.isHuman) {
+                android.util.Log.w("TableVM", "onHumanAction dropped: seat=$seat is NPC (isHuman=false)")
+                return
+            }
+            val streetBefore = s.street
+            val next = controller.humanAct(action)
+            showLastAction(seat, action)
+            // M5-B: human 액션 로그 + 핸드 종료 감지.
+            logAction(seat = seat, action = action, streetOrdinal = streetBefore.ordinal)
+            _state.value = next
+            maybeRecordFinishedHand(next)
+            persistSnapshot()
+            startTicking()
+        } finally {
+            humanActionInFlight.set(false)
+        }
+    }
+
+    /**
+     * 7-Stud Hi-Lo 한국식 declare 단계에서 사람 좌석의 선언 디스패치.
+     * 일반 [onHumanAction] 과 동일한 in-flight 가드 / state 검증 / 로깅 흐름을 따른다.
+     */
+    fun onDeclare(declaration: Declaration) {
         val s = _state.value
-        val seat = s.toActSeat
-        if (seat == null) {
-            android.util.Log.w("TableVM", "onHumanAction dropped: toActSeat=null")
+        if (s.street != Street.DECLARE) {
+            android.util.Log.w("TableVM", "onDeclare dropped: street=${s.street}")
             return
         }
-        val p = s.players.firstOrNull { it.seat == seat }
-        if (p == null) {
-            android.util.Log.w("TableVM", "onHumanAction dropped: no player at seat=$seat")
-            return
-        }
-        if (!p.isHuman) {
-            android.util.Log.w("TableVM", "onHumanAction dropped: seat=$seat is NPC (isHuman=false)")
-            return
-        }
-        val streetBefore = s.street
-        val next = controller.humanAct(action)
-        showLastAction(seat, action)
-        // M5-B: human 액션 로그 + 핸드 종료 감지.
-        logAction(seat = seat, action = action, streetOrdinal = streetBefore.ordinal)
-        _state.value = next
-        maybeRecordFinishedHand(next)
-        persistSnapshot()
-        startTicking()
+        onHumanAction(Action(type = ActionType.DECLARE, declaration = declaration))
     }
 
     fun onNextHand() {
@@ -283,6 +316,12 @@ class TableViewModel private constructor(
             ActionType.BET -> "벳 ${ChipFormat.format(action.amount)}"
             ActionType.RAISE -> "레이즈 ${ChipFormat.format(action.amount)}"
             ActionType.ALL_IN -> "올인"
+            ActionType.DECLARE -> when (action.declaration) {
+                com.infocar.pokermaster.core.model.Declaration.HIGH -> "하이"
+                com.infocar.pokermaster.core.model.Declaration.LOW -> "로우"
+                com.infocar.pokermaster.core.model.Declaration.SWING -> "스윙"
+                null -> "선언"
+            }
             else -> action.type.name
         }
         _lastActions.value = _lastActions.value + (seat to label)
@@ -327,7 +366,9 @@ class TableViewModel private constructor(
                 if (p.isHuman) return@launch
                 // M7-BugFix: toAct가 inactive seat(all-in/folded)을 가리키는 drift 상태라면
                 // NPC act 호출 시 engine 이 require(active) 트립. 탈출시켜 freeze 방지.
-                if (!p.active) {
+                // 단, DECLARE 단계는 all-in(=alive but !active) 도 declare 해야 하므로 통과.
+                val inDeclare = s.street == Street.DECLARE
+                if (!p.active && !(inDeclare && p.alive)) {
                     android.util.Log.w(
                         "TableVM",
                         "tick: toAct seat=$seat is inactive (folded=${p.folded}, allIn=${p.allIn}) — aborting tick",

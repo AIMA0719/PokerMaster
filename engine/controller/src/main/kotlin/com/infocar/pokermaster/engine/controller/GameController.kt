@@ -133,10 +133,13 @@ class GameController(
         advisor: LlmAdvisor?,
         timeoutMs: Long = AiDriver.DEFAULT_LLM_TIMEOUT_MS,
     ): NpcActResult? {
-        // M7-BugFix: toAct null / 인간 차례 / 비-active seat → null 반환해 호출자 loop 조기 탈출.
+        // M7-BugFix: toAct null / 인간 차례 → null 반환해 호출자 loop 조기 탈출.
         val seat = _state.toActSeat ?: return null
         val p = _state.players.firstOrNull { it.seat == seat } ?: return null
-        if (p.isHuman || !p.active) return null
+        if (p.isHuman) return null
+        // DECLARE 단계는 active 무관 (all-in 도 alive 면 declare 해야 함).
+        // 그 외 베팅 단계는 inactive seat → loop 종료 (drift 방지).
+        if (_state.street != Street.DECLARE && !p.active) return null
         val persona = AiDriver.resolvePersona(p)
         val streetBefore = _state.street
         val action = aiDriver.actWithLlm(_state, seat, persona, advisor, timeoutMs)

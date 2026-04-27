@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -35,6 +34,7 @@ import com.infocar.pokermaster.core.model.ActionType
 import com.infocar.pokermaster.core.ui.theme.HangameColors
 import com.infocar.pokermaster.core.ui.theme.PokerMasterTheme
 import com.infocar.pokermaster.feature.table.a11y.A11yStrings
+import java.util.concurrent.atomic.AtomicLong
 import kotlin.math.roundToLong
 
 /**
@@ -161,7 +161,10 @@ private fun ActionButton(
     else Brush.verticalGradient(listOf(HangameColors.BtnDisabled, HangameColors.BtnDisabled))
 
     // M7-BugFix: 빠른 연타로 같은 액션이 두 번 디스패치되는 것 방어. 350ms throttle.
-    val lastTapAt = remember { mutableLongStateOf(0L) }
+    // 감사 결과 #2 fix: 기존 mutableLongStateOf 는 non-atomic check-and-set —
+    // 빠른 더블탭과 재컴포지션이 겹치면 두 코루틴 모두 throttle 게이트 통과 가능.
+    // AtomicLong.compareAndSet 으로 atomic check-and-update — 두 번째 탭은 항상 게이트에서 떨어진다.
+    val lastTapAt = remember { AtomicLong(0L) }
 
     Box(
         modifier = modifier
@@ -179,8 +182,8 @@ private fun ActionButton(
             .pointerInput(enabled) {
                 if (enabled) detectTapGestures(onTap = {
                     val now = System.currentTimeMillis()
-                    if (now - lastTapAt.longValue >= ACTION_TAP_THROTTLE_MS) {
-                        lastTapAt.longValue = now
+                    val prev = lastTapAt.get()
+                    if (now - prev >= ACTION_TAP_THROTTLE_MS && lastTapAt.compareAndSet(prev, now)) {
                         onClick()
                     }
                 })
