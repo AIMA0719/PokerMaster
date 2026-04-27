@@ -35,6 +35,7 @@ import com.infocar.pokermaster.core.model.ActionType
 import com.infocar.pokermaster.core.ui.theme.HangameColors
 import com.infocar.pokermaster.core.ui.theme.PokerMasterTheme
 import com.infocar.pokermaster.feature.table.a11y.A11yStrings
+import com.infocar.pokermaster.feature.table.anim.pressScale
 import kotlin.math.roundToLong
 
 /**
@@ -187,6 +188,7 @@ private fun ActionButton(
         modifier = modifier
             .fillMaxWidth()
             .height(44.dp)
+            .pressScale(enabled = enabled)
             .clip(RoundedCornerShape(8.dp))
             .background(gradient)
             .border(

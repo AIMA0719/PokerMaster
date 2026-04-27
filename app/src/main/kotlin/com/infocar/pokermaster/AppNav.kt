@@ -1,5 +1,10 @@
 package com.infocar.pokermaster
 
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -38,6 +43,8 @@ import dagger.hilt.android.EntryPointAccessors
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+
+private const val NAV_TRANSITION_MS = 280
 
 private object Routes {
     const val SPLASH = "splash"
@@ -96,7 +103,25 @@ fun AppNav() {
                 }
             })
         }
-        composable(Routes.LOBBY) {
+        composable(
+            Routes.LOBBY,
+            enterTransition = {
+                slideInHorizontally(animationSpec = tween(NAV_TRANSITION_MS)) { -it / 4 } +
+                    fadeIn(animationSpec = tween(NAV_TRANSITION_MS))
+            },
+            exitTransition = {
+                slideOutHorizontally(animationSpec = tween(NAV_TRANSITION_MS)) { -it / 4 } +
+                    fadeOut(animationSpec = tween(NAV_TRANSITION_MS))
+            },
+            popEnterTransition = {
+                slideInHorizontally(animationSpec = tween(NAV_TRANSITION_MS)) { -it / 4 } +
+                    fadeIn(animationSpec = tween(NAV_TRANSITION_MS))
+            },
+            popExitTransition = {
+                slideOutHorizontally(animationSpec = tween(NAV_TRANSITION_MS)) { -it / 4 } +
+                    fadeOut(animationSpec = tween(NAV_TRANSITION_MS))
+            },
+        ) {
             LobbyScreen(
                 onSelectMode = { mode, seats, buyIn ->
                     // 모든 정식 모드 지원 — HOLDEM_NL / SEVEN_STUD / SEVEN_STUD_HI_LO.
@@ -162,6 +187,22 @@ fun AppNav() {
                 navArgument("seats") { type = NavType.IntType },
                 navArgument("buyIn") { type = NavType.LongType },
             ),
+            enterTransition = {
+                slideInHorizontally(animationSpec = tween(NAV_TRANSITION_MS)) { it } +
+                    fadeIn(animationSpec = tween(NAV_TRANSITION_MS))
+            },
+            exitTransition = {
+                slideOutHorizontally(animationSpec = tween(NAV_TRANSITION_MS)) { it } +
+                    fadeOut(animationSpec = tween(NAV_TRANSITION_MS))
+            },
+            popEnterTransition = {
+                slideInHorizontally(animationSpec = tween(NAV_TRANSITION_MS)) { it } +
+                    fadeIn(animationSpec = tween(NAV_TRANSITION_MS))
+            },
+            popExitTransition = {
+                slideOutHorizontally(animationSpec = tween(NAV_TRANSITION_MS)) { it } +
+                    fadeOut(animationSpec = tween(NAV_TRANSITION_MS))
+            },
         ) { entry ->
             val modeName = entry.arguments?.getString("mode") ?: GameMode.HOLDEM_NL.name
             val mode = runCatching { GameMode.valueOf(modeName) }.getOrDefault(GameMode.HOLDEM_NL)

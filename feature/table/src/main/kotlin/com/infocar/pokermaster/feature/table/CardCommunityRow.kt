@@ -24,6 +24,7 @@ import com.infocar.pokermaster.core.model.Rank
 import com.infocar.pokermaster.core.model.Suit
 import com.infocar.pokermaster.core.ui.theme.PokerMasterTheme
 import com.infocar.pokermaster.feature.table.anim.DealAnimationSpec
+import com.infocar.pokermaster.feature.table.anim.cardEntrance
 
 /**
  * 커뮤니티 카드 5장 슬롯. 공개된 카드는 faceUp, 나머지는 placeholder.
@@ -69,7 +70,13 @@ fun CardCommunityRow(
                     enter = slideInHorizontally(animationSpec = slideSpec) { w -> w / 2 } +
                         fadeIn(animationSpec = fadeSpec),
                 ) {
-                    PlayingCard(card = card, faceDown = false, width = 32.dp, height = 46.dp)
+                    PlayingCard(
+                        card = card,
+                        faceDown = false,
+                        width = 32.dp,
+                        height = 46.dp,
+                        modifier = Modifier.cardEntrance(durationMs = duration, delayMs = delay, key = card),
+                    )
                 }
             }
         }
