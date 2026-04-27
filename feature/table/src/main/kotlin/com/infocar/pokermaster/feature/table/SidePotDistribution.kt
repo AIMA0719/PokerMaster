@@ -20,6 +20,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.infocar.pokermaster.core.model.PotSummary
+import com.infocar.pokermaster.core.ui.theme.HangameColors
 import com.infocar.pokermaster.core.ui.theme.PokerColors
 import com.infocar.pokermaster.core.ui.theme.PokerMasterTheme
 
@@ -43,7 +44,8 @@ fun SidePotDistribution(
     val winnerCount = pot.winnerSeats.size.coerceAtLeast(1)
     val perWinner = pot.amount / winnerCount
 
-    val goldBorder = BorderStroke(2.dp, PokerColors.Accent)
+    // Hangame 톤: 펠트와 동일한 골드. PokerColors.Accent 도 같은 hex 였지만 tokens 통일.
+    val goldBorder = BorderStroke(2.dp, HangameColors.PotValue)
 
     Surface(
         modifier = modifier.fillMaxWidth(),
@@ -67,7 +69,7 @@ fun SidePotDistribution(
                     Text(
                         text = ChipFormat.format(pot.amount),
                         style = MaterialTheme.typography.titleMedium,
-                        color = PokerColors.Accent,
+                        color = HangameColors.PotValue,
                         fontWeight = FontWeight.Bold,
                     )
                 }
@@ -86,7 +88,7 @@ fun SidePotDistribution(
                         Text(
                             text = "+${ChipFormat.format(perWinner)}",
                             style = MaterialTheme.typography.titleSmall,
-                            color = PokerColors.Success,
+                            color = HangameColors.BtnCall,
                             fontWeight = FontWeight.SemiBold,
                         )
                     }
@@ -111,14 +113,22 @@ fun SidePotDistribution(
                     val label = when {
                         !isWinner -> name
                         !isHiLoBranch -> "★ $name"
-                        hi && lo -> "★ HL $name"   // 스쿠프 (hi+lo 동시)
-                        hi -> "★ H $name"
-                        else -> "★ L $name"
+                        hi && lo -> "★ 스쿠프 $name"   // 스쿠프 (hi+lo 동시)
+                        hi -> "★ Hi $name"
+                        else -> "★ Lo $name"
+                    }
+                    // Hi/Lo 색 분리 — 한 행에서 누가 어느 사이드 승자인지 즉시 인지.
+                    val labelColor = when {
+                        !isWinner -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+                        !isHiLoBranch -> HangameColors.PotValue
+                        hi && lo -> HangameColors.HiLoScoopBadge
+                        hi -> HangameColors.HiLoHiBadge
+                        else -> HangameColors.HiLoLoBadge
                     }
                     Text(
                         text = label,
                         style = MaterialTheme.typography.labelMedium,
-                        color = if (isWinner) PokerColors.Accent else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
+                        color = labelColor,
                         fontWeight = if (isWinner) FontWeight.SemiBold else FontWeight.Normal,
                     )
                 }
