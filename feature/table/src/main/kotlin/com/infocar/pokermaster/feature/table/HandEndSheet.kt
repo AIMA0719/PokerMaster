@@ -39,7 +39,7 @@ import com.infocar.pokermaster.core.model.Card
 import com.infocar.pokermaster.core.model.PotSummary
 import com.infocar.pokermaster.core.model.Rank
 import com.infocar.pokermaster.core.model.Suit
-import com.infocar.pokermaster.core.ui.theme.PokerColors
+import com.infocar.pokermaster.core.ui.theme.HangameColors
 import com.infocar.pokermaster.core.ui.theme.PokerMasterTheme
 import kotlinx.coroutines.delay
 
@@ -96,7 +96,7 @@ fun HandEndSheet(
                 .fillMaxWidth()
                 .heightIn(max = 320.dp),
             shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
-            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f),
+            color = HangameColors.PotBg.copy(alpha = 0.96f),
             tonalElevation = 8.dp,
         ) {
             Column(
@@ -110,7 +110,7 @@ fun HandEndSheet(
                 Text(
                     text = headerText,
                     style = MaterialTheme.typography.titleMedium,
-                    color = PokerColors.Accent,
+                    color = HangameColors.PotValue,
                     fontWeight = FontWeight.Bold,
                 )
 
@@ -147,14 +147,14 @@ fun HandEndSheet(
                     Text(
                         text = stringResource(id = R.string.hand_end_uncalled_returned),
                         style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+                        color = HangameColors.TextSecondary,
                     )
                     data.uncalledBySeat.entries.sortedBy { it.key }.forEach { (seat, chips) ->
                         val name = data.nicknameBySeat[seat] ?: "#$seat"
                         Text(
                             text = "$name +${ChipFormat.format(chips)}",
                             style = MaterialTheme.typography.bodySmall,
-                            color = PokerColors.Warning,
+                            color = HangameColors.TextLime,
                         )
                     }
                 }
@@ -171,7 +171,7 @@ fun HandEndSheet(
                         onClick = onNext,
                         modifier = Modifier.weight(1f).height(48.dp),
                         colors = ButtonDefaults.buttonColors(
-                            containerColor = PokerColors.Primary,
+                            containerColor = HangameColors.BtnCall,
                             contentColor = Color.White,
                         ),
                     ) {
@@ -206,7 +206,7 @@ private fun BestFiveRow(
         Text(
             text = nickname,
             style = MaterialTheme.typography.labelMedium,
-            color = PokerColors.Accent,
+            color = HangameColors.PotValue,
             modifier = Modifier.width(64.dp),
         )
         Spacer(Modifier.width(6.dp))

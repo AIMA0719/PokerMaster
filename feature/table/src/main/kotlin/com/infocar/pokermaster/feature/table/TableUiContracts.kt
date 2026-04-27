@@ -66,11 +66,12 @@ object TableUiMapper {
         val toCall = (state.betToCall - me.committedThisStreet).coerceAtLeast(0L)
         val myMaxCommit = me.committedThisStreet + me.chips
         val isStud = state.mode == GameMode.SEVEN_STUD || state.mode == GameMode.SEVEN_STUD_HI_LO
+        val mayRaise = state.reopenAction || !me.actedThisStreet
         return object : ActionBarState {
             override val canCheck = toCall == 0L
             override val canCall = toCall > 0L
             override val callAmount = toCall.coerceAtMost(me.chips)
-            override val canRaise = state.reopenAction && me.chips > 0 && myMaxCommit > state.betToCall
+            override val canRaise = mayRaise && me.chips > 0 && myMaxCommit > state.betToCall
             override val minRaiseTotal = state.minRaise.coerceAtMost(myMaxCommit)
             override val maxRaiseTotal = myMaxCommit
             override val currentCommitted = me.committedThisStreet

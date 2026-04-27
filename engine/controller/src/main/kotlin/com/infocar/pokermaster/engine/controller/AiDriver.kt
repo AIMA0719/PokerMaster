@@ -127,7 +127,8 @@ class AiDriver(
             ActionType.CHECK -> if (toCall > 0L) Action(ActionType.CALL) else Action(ActionType.CHECK)
             ActionType.CALL -> callOrCheck()
             ActionType.BET, ActionType.RAISE -> {
-                if (!state.reopenAction || me.chips == 0L) return callOrCheck()
+                val mayRaise = state.reopenAction || !me.actedThisStreet
+                if (!mayRaise || me.chips == 0L) return callOrCheck()
                 val desired = cand.amount.coerceAtLeast(state.minRaise).coerceAtMost(myMaxCommit)
                 when {
                     desired >= myMaxCommit -> Action(ActionType.ALL_IN, myMaxCommit)

@@ -16,7 +16,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -32,12 +31,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Menu
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -78,7 +74,6 @@ import com.infocar.pokermaster.core.data.history.HandHistoryRepository
 import com.infocar.pokermaster.core.data.wallet.WalletRepository
 import com.infocar.pokermaster.core.model.TableConfig
 import com.infocar.pokermaster.core.ui.theme.HangameColors
-import com.infocar.pokermaster.core.ui.theme.PokerColors
 import com.infocar.pokermaster.core.ui.theme.PokerMasterTheme
 import com.infocar.pokermaster.engine.controller.StudReducer
 import com.infocar.pokermaster.engine.controller.llm.LlmAdvisor
@@ -307,7 +302,13 @@ internal fun TableContent(
     val handEndData = remember(state) { TableUiMapper.mapHandEnd(state) }
     val isShowdown = state.pendingShowdown != null || state.street == Street.SHOWDOWN
     val winnerSeats = remember(state.pendingShowdown) {
-        state.pendingShowdown?.pots?.flatMap { it.winnerSeats }?.toSet() ?: emptySet()
+        val potWinners = state.pendingShowdown?.pots?.flatMap { it.winnerSeats }?.toSet().orEmpty()
+        potWinners.ifEmpty {
+            state.pendingShowdown?.payouts
+                ?.filterValues { it > 0L }
+                ?.keys
+                .orEmpty()
+        }
     }
 
     Scaffold(
@@ -354,7 +355,7 @@ internal fun TableContent(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(horizontal = 48.dp)
-                    .padding(top = 8.dp, bottom = 72.dp),
+                    .padding(top = 8.dp, bottom = 124.dp),
             )
 
             // 4) 우상단 헤더 — 블라인드 정보 + 햄버거 메뉴 + 나가기 (좌상단 제거).
@@ -412,6 +413,16 @@ internal fun TableContent(
                     modifier = Modifier
                         .align(Alignment.TopCenter)
                         .padding(top = 64.dp),
+                )
+                HandEndSheet(
+                    data = handEndData,
+                    onNext = onNextHand,
+                    onInsights = {},
+                    autoNextCountdown = autoNextCountdown,
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .widthIn(max = 640.dp)
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
                 )
             }
 
@@ -812,13 +823,19 @@ private fun WinnerBanner(
     autoNextCountdown: Int?,
     modifier: Modifier = Modifier,
 ) {
-    val firstPot = data.pots.firstOrNull() ?: return
-    val firstWinnerSeat = firstPot.winnerSeats.firstOrNull() ?: return
-    val winnerName = data.nicknameBySeat[firstWinnerSeat] ?: "-"
-    val winnerCategory = data.handInfos[firstWinnerSeat] ?: ""
-    val winnerPayout = data.payoutsBySeat[firstWinnerSeat] ?: 0L
-    val isHumanWinner = firstWinnerSeat == humanSeat
-    val others = (firstPot.winnerSeats - firstWinnerSeat)
+    val allWinnerSeats = data.pots
+        .flatMap { it.winnerSeats }
+        .toSet()
+        .ifEmpty { data.payoutsBySeat.filterValues { it > 0L }.keys }
+    if (allWinnerSeats.isEmpty()) return
+
+    val humanPayout = data.payoutsBySeat[humanSeat] ?: 0L
+    val primaryWinnerSeat = if (humanPayout > 0L) humanSeat else allWinnerSeats.first()
+    val winnerName = data.nicknameBySeat[primaryWinnerSeat] ?: "-"
+    val winnerCategory = data.handInfos[primaryWinnerSeat] ?: ""
+    val winnerPayout = data.payoutsBySeat[primaryWinnerSeat] ?: 0L
+    val isHumanWinner = primaryWinnerSeat == humanSeat
+    val others = (allWinnerSeats - primaryWinnerSeat)
         .mapNotNull { data.nicknameBySeat[it] }
         .joinToString(", ")
         .ifEmpty { null }

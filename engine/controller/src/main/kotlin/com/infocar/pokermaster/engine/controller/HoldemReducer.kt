@@ -27,7 +27,8 @@ import com.infocar.pokermaster.engine.rules.SidePotCalculator
  *  - [ackShowdown]: 쇼다운 애니 후 UI 확인 → pending 해제 (다음 [startHand] 를 Controller 가 호출).
  *
  * v1.1 §3.2 반영:
- *  - A. All-in less-than-min-raise → [GameState.reopenAction] = false (이후 라운드는 call/fold 만)
+ *  - A. All-in less-than-min-raise → 이미 액션한 플레이어에게는 재레이즈 불가.
+ *       아직 액션하지 않은 플레이어는 정상 full raise 가능.
  *  - B. 헤즈업 SB=BTN 분기 (pre-flop first to act = BTN, post-flop first to act = BB)
  *  - BB option: 프리플롭 all-call 시 BB 에게 체크/레이즈 option (actedThisStreet 플래그로 처리)
  */
@@ -79,17 +80,22 @@ object HoldemReducer {
             }
         }
         current = current.map { p ->
-            if (p.chips > 0 && !p.folded && holes.containsKey(p.seat)) {
+            if (!p.folded && holes.containsKey(p.seat)) {
                 p.copy(holeCards = holes[p.seat]!!.toList())
             } else p
         }
 
         // 5) first to act
         val liveCount = current.count { !it.folded }
-        val firstToAct = if (liveCount == 2) newBtn else nextActiveSeatAfter(bbSeat, current)
+        val firstToAct = if (liveCount == 2 && current.first { it.seat == newBtn }.active) {
+            newBtn
+        } else {
+            nextActiveSeatAfter(if (liveCount == 2) newBtn else bbSeat, current)
+        }
 
-        val bb = config.bigBlind
-        return GameState(
+        val openingBet = current.maxOf { it.committedThisStreet }
+        val bb = config.bigBlind.coerceAtLeast(1L)
+        val initial = GameState(
             mode = config.mode,
             config = config,
             stateVersion = startingVersion + 1,
@@ -99,8 +105,8 @@ object HoldemReducer {
             toActSeat = firstToAct,
             street = Street.PREFLOP,
             community = emptyList(),
-            betToCall = bb,
-            minRaise = bb * 2,
+            betToCall = openingBet,
+            minRaise = openingBet + bb,
             reopenAction = true,
             lastFullRaiseAmount = bb,
             lastAggressorSeat = bbSeat,
@@ -109,6 +115,11 @@ object HoldemReducer {
             pendingShowdown = null,
             paused = false,
         )
+        return if (isBettingRoundComplete(initial)) {
+            runoutOrShowdown(initial, rng)
+        } else {
+            initial
+        }
     }
 
     // ------------------------------------------------------- Act
@@ -231,8 +242,10 @@ object HoldemReducer {
 
     private fun applyBetOrRaise(state: GameState, seat: Int, action: Action): GameState {
         val me = state.players.first { it.seat == seat }
-        // M7-BugFix: action 재오픈 불가, stack 소진, invalid target → CALL/CHECK 로 강등.
-        if (!state.reopenAction || me.chips == 0L || action.amount <= state.betToCall) {
+        // Short all-in 은 이미 액션한 플레이어에게만 재레이즈를 닫는다.
+        // 아직 이번 스트릿에서 액션하지 않은 플레이어는 정상 full raise 가능해야 한다.
+        val mayRaise = state.reopenAction || !me.actedThisStreet
+        if (!mayRaise || me.chips == 0L || action.amount <= state.betToCall) {
             return if (state.betToCall > me.committedThisStreet) applyCall(state, seat)
             else applyCheck(state, seat)
         }
@@ -245,8 +258,9 @@ object HoldemReducer {
         }
 
         val wouldBeAllIn = delta == me.chips
-        val raiseIncrement = target - state.betToCall
         val baselineRaise = maxOf(state.lastFullRaiseAmount, state.config.bigBlind)
+        val lastFullBet = (state.minRaise - baselineRaise).coerceAtLeast(0L)
+        val raiseIncrement = target - lastFullBet
         val isFullRaise = raiseIncrement >= baselineRaise
 
         if (!isFullRaise && !wouldBeAllIn) {
@@ -270,15 +284,27 @@ object HoldemReducer {
             }
         }
 
-        return state.copy(
-            players = newPlayers,
-            betToCall = target,
-            minRaise = target + maxOf(raiseIncrement, state.config.bigBlind),
-            lastFullRaiseAmount = if (isFullRaise) raiseIncrement else state.lastFullRaiseAmount,
-            reopenAction = isFullRaise,
-            lastAggressorSeat = seat,
-            stateVersion = state.stateVersion + 1,
-        )
+        return if (isFullRaise) {
+            state.copy(
+                players = newPlayers,
+                betToCall = target,
+                minRaise = target + raiseIncrement,
+                lastFullRaiseAmount = raiseIncrement,
+                reopenAction = true,
+                lastAggressorSeat = seat,
+                stateVersion = state.stateVersion + 1,
+            )
+        } else {
+            state.copy(
+                players = newPlayers,
+                betToCall = target,
+                minRaise = state.minRaise,
+                lastFullRaiseAmount = state.lastFullRaiseAmount,
+                reopenAction = false,
+                lastAggressorSeat = seat,
+                stateVersion = state.stateVersion + 1,
+            )
+        }
     }
 
     private fun applyAllIn(state: GameState, seat: Int): GameState {
@@ -319,8 +345,10 @@ object HoldemReducer {
             Street.RIVER -> 1
             else -> 0
         }
-        val newCommunity = state.community + (0 until toAdd).map { rng.deck[state.deckCursor + it] }
-        val newCursor = state.deckCursor + toAdd
+        val burn = if (toAdd > 0) 1 else 0
+        val dealStart = state.deckCursor + burn
+        val newCommunity = state.community + (0 until toAdd).map { rng.deck[dealStart + it] }
+        val newCursor = state.deckCursor + burn + toAdd
         val resetPlayers = state.players.map { p ->
             p.copy(
                 committedThisStreet = 0L,

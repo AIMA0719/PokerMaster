@@ -4,7 +4,6 @@ import com.google.common.truth.Truth.assertThat
 import com.infocar.pokermaster.core.model.Action
 import com.infocar.pokermaster.core.model.ActionType
 import com.infocar.pokermaster.core.model.GameMode
-import com.infocar.pokermaster.core.model.GameState
 import com.infocar.pokermaster.core.model.PlayerState
 import com.infocar.pokermaster.core.model.Street
 import com.infocar.pokermaster.core.model.TableConfig
@@ -64,6 +63,12 @@ class HoldemReducerTest {
         // SB 가 폴드 → BB 단독 승
         val s1 = HoldemReducer.act(s0, seat = 0, Action(ActionType.FOLD), rng)
         assertThat(s1.pendingShowdown).isNotNull()
+        val summary = s1.pendingShowdown!!
+        assertThat(summary.pots).hasSize(1)
+        assertThat(summary.pots[0].amount).isEqualTo(50L)
+        assertThat(summary.pots[0].eligibleSeats).containsExactly(1)
+        assertThat(summary.pots[0].winnerSeats).containsExactly(1)
+        assertThat(summary.uncalledReturn).containsExactly(1, 25L)
         val totalAfter = s1.players.sumOf { it.chips }
         assertThat(totalAfter).isEqualTo(totalBefore)
     }
@@ -95,6 +100,31 @@ class HoldemReducerTest {
         assertThat(s.pendingShowdown).isNotNull()
         val totalAfter = s.players.sumOf { it.chips }
         assertThat(totalAfter).isEqualTo(totalBefore)
+    }
+
+    @Test fun community_cards_burn_before_each_board_street() {
+        val rng = deterministicRng(4L)
+        var s = HoldemReducer.startHand(config, players(10_000, 10_000), null, rng, 1L, 0L)
+
+        s = HoldemReducer.act(s, 0, Action(ActionType.CALL), rng)
+        s = HoldemReducer.act(s, 1, Action(ActionType.CHECK), rng)
+        assertThat(s.street).isEqualTo(Street.FLOP)
+        assertThat(s.community).containsExactly(rng.deck[5], rng.deck[6], rng.deck[7]).inOrder()
+        assertThat(s.deckCursor).isEqualTo(8)
+
+        s = HoldemReducer.act(s, 1, Action(ActionType.CHECK), rng)
+        s = HoldemReducer.act(s, 0, Action(ActionType.CHECK), rng)
+        assertThat(s.street).isEqualTo(Street.TURN)
+        assertThat(s.community).containsExactly(rng.deck[5], rng.deck[6], rng.deck[7], rng.deck[9]).inOrder()
+        assertThat(s.deckCursor).isEqualTo(10)
+
+        s = HoldemReducer.act(s, 1, Action(ActionType.CHECK), rng)
+        s = HoldemReducer.act(s, 0, Action(ActionType.CHECK), rng)
+        assertThat(s.street).isEqualTo(Street.RIVER)
+        assertThat(s.community)
+            .containsExactly(rng.deck[5], rng.deck[6], rng.deck[7], rng.deck[9], rng.deck[11])
+            .inOrder()
+        assertThat(s.deckCursor).isEqualTo(12)
     }
 
     @Test fun all_in_shortstack_less_than_min_raise_blocks_reraise() {
@@ -134,6 +164,59 @@ class HoldemReducerTest {
         // All-in less than betToCall → call semantics, reopenAction 유지 (less-than-min-raise raise 가 아님)
         assertThat(s.reopenAction).isTrue()
         assertThat(s.players[2].allIn).isTrue()
+    }
+
+    @Test fun short_all_in_does_not_block_unacted_player_full_raise() {
+        val cfg = config.copy(seats = 4)
+        val rng = deterministicRng(8L)
+        var s = HoldemReducer.startHand(
+            config = cfg,
+            players = listOf(
+                PlayerState(0, "P0", isHuman = true, chips = 125L), // BTN short stack
+                PlayerState(1, "P1", isHuman = false, personaId = "PRO", chips = 10_000L),
+                PlayerState(2, "P2", isHuman = false, personaId = "PRO", chips = 10_000L),
+                PlayerState(3, "P3", isHuman = false, personaId = "PRO", chips = 10_000L),
+            ),
+            prevBtnSeat = null,
+            rng = rng,
+            handIndex = 1L,
+            startingVersion = 0L,
+        )
+
+        // UTG raises from BB 50 to 100. BTN then makes a short all-in raise to 125.
+        s = HoldemReducer.act(s, 3, Action(ActionType.RAISE, 100L), rng)
+        s = HoldemReducer.act(s, 0, Action(ActionType.ALL_IN), rng)
+        assertThat(s.betToCall).isEqualTo(125L)
+        assertThat(s.minRaise).isEqualTo(150L)
+        assertThat(s.reopenAction).isFalse()
+        assertThat(s.toActSeat).isEqualTo(1)
+
+        // SB has not acted yet this street, so the short all-in must not remove the raise option.
+        s = HoldemReducer.act(s, 1, Action(ActionType.RAISE, 150L), rng)
+        assertThat(s.betToCall).isEqualTo(150L)
+        assertThat(s.players[1].committedThisStreet).isEqualTo(150L)
+        assertThat(s.reopenAction).isTrue()
+        assertThat(s.toActSeat).isEqualTo(2)
+    }
+
+    @Test fun heads_up_blind_all_in_at_hand_start_runs_out_to_showdown() {
+        val rng = deterministicRng(9L)
+        val s = HoldemReducer.startHand(
+            config = config,
+            players = players(25L, 10_000L),
+            prevBtnSeat = null,
+            rng = rng,
+            handIndex = 1L,
+            startingVersion = 0L,
+        )
+
+        assertThat(s.street).isEqualTo(Street.SHOWDOWN)
+        assertThat(s.toActSeat).isNull()
+        assertThat(s.pendingShowdown).isNotNull()
+        assertThat(s.community)
+            .containsExactly(rng.deck[5], rng.deck[6], rng.deck[7], rng.deck[9], rng.deck[11])
+            .inOrder()
+        assertThat(s.pendingShowdown!!.uncalledReturn).containsExactly(1, 25L)
     }
 
     @Test fun state_version_is_monotonic() {

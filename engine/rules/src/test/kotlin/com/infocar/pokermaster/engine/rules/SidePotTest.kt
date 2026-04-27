@@ -163,6 +163,18 @@ class SidePotTest {
         assertConservation(input, r)
     }
 
+    @Test fun folded_blind_and_matched_chips_create_won_pot_not_return_only() {
+        val input = listOf(pc(0, 25L, folded = true), pc(1, 50L))
+        val r = SidePotCalculator.compute(input)
+
+        // Folded SB 25 + BB matched 25 is a won pot; only the unmatched BB 25 is returned.
+        assertThat(r.pots).hasSize(1)
+        assertThat(r.pots[0].amount).isEqualTo(50L)
+        assertThat(r.pots[0].eligibleSeats).containsExactly(1)
+        assertThat(r.uncalledReturn).containsExactly(1, 25L)
+        assertConservation(input, r)
+    }
+
     // ---------- 보존성 fuzz: 모든 케이스에서 strict 보존 ----------
     @Test fun conservation_fuzz_1000_random_inputs() {
         val rnd = java.util.Random(42)

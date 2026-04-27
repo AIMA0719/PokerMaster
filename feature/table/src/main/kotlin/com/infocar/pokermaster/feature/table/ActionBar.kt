@@ -6,7 +6,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -40,8 +40,8 @@ import kotlin.math.roundToLong
 /**
  * 한게임 풍 6버튼 액션바 — v3.
  *
- *  배치: [다이 | 따당 | 콜 | 쿼터 | 하프 | 올인]  — 풀폭 가로.
- *  - 라벨 inline: "콜 25", "쿼터 100", "하프 100", "올인 1만" 처럼 한 줄에 표시.
+ *  배치: 상단 [다이 | 체크 | 콜], 하단 [쿼터 | 하프 | 팟 | 올인].
+ *  - 한게임 포커처럼 기본 액션과 베팅 크기 선택을 분리해 모바일에서 금액 라벨 절단을 줄인다.
  *  - 체크박스 인디케이터(□) 제거 — 단순화.
  *  - 비활성 상태는 회색 + 라벨 흐리게.
  *  - 큰 raise / all-in 은 [onRequestConfirm] 으로 2단계 확인 (기존 로직 유지).
@@ -58,6 +58,7 @@ fun ActionBar(
 
     val quarterAmount = clampRaise(state, callAbs + (potSize.toDouble() * 0.25).roundToLong())
     val halfAmount = clampRaise(state, callAbs + (potSize.toDouble() * 0.5).roundToLong())
+    val potAmount = clampRaise(state, callAbs + potSize)
     val allInAmount = state.maxRaiseTotal
 
     // 액션 dispatch helper — raise 류는 80% chip 이상이면 confirm.
@@ -70,80 +71,99 @@ fun ActionBar(
         if (needsConfirm) onRequestConfirm(type, amount) else onAction(Action(type, amount))
     }
 
-    Row(
+    Column(
         modifier = modifier,
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-        verticalAlignment = Alignment.CenterVertically,
+        verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        ActionButton(
-            label = "다이",
-            tint = HangameColors.BtnFold,
-            tintDark = HangameColors.BtnFoldDark,
-            enabled = true,
-            a11y = A11yStrings.actionButton(ActionType.FOLD),
-            onClick = { onAction(Action(ActionType.FOLD)) },
-            modifier = Modifier.weight(1f),
-        )
-        // 체크 (이전 "따당") — canCheck 시만 활성. 상대 올인이라도 본인이 이미 매치(callAmount=0)면
-        // canCheck=true 라 활성됨. NL 홀덤 표준 룰 그대로.
-        ActionButton(
-            label = "체크",
-            tint = HangameColors.BtnCall,
-            tintDark = HangameColors.BtnCallDark,
-            enabled = state.canCheck,
-            a11y = A11yStrings.actionButton(ActionType.CHECK),
-            onClick = { onAction(Action(ActionType.CHECK)) },
-            modifier = Modifier.weight(1f),
-        )
-        ActionButton(
-            label = if (state.canCall) "콜 ${ChipFormat.format(state.callAmount)}" else "콜",
-            tint = HangameColors.BtnCall,
-            tintDark = HangameColors.BtnCallDark,
-            enabled = state.canCall,
-            a11y = A11yStrings.actionButton(ActionType.CALL, toCall = state.callAmount),
-            onClick = { onAction(Action(ActionType.CALL)) },
-            modifier = Modifier.weight(1f),
-        )
-        // 7스터드/HiLo 전용 "구사" 버튼 — 콜 봉착 + 살아있는 칩 보유 시 활성.
-        // 잔여 콜의 절반만 commit 하고 allIn 으로 전환 (StudReducer.applySaveLife).
-        if (state.canSaveLife) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             ActionButton(
-                label = "구사",
+                label = "다이",
                 tint = HangameColors.BtnFold,
                 tintDark = HangameColors.BtnFoldDark,
                 enabled = true,
-                a11y = "구사 (한국식 7스터드)",
-                onClick = { onAction(Action(ActionType.SAVE_LIFE)) },
+                a11y = A11yStrings.actionButton(ActionType.FOLD),
+                onClick = { onAction(Action(ActionType.FOLD)) },
+                modifier = Modifier.weight(1f),
+            )
+            // 체크 — canCheck 시만 활성. 상대 올인이라도 본인이 이미 매치(callAmount=0)면
+            // canCheck=true 라 활성됨. NL 홀덤 표준 룰 그대로.
+            ActionButton(
+                label = "체크",
+                tint = HangameColors.BtnCall,
+                tintDark = HangameColors.BtnCallDark,
+                enabled = state.canCheck,
+                a11y = A11yStrings.actionButton(ActionType.CHECK),
+                onClick = { onAction(Action(ActionType.CHECK)) },
+                modifier = Modifier.weight(1f),
+            )
+            ActionButton(
+                label = if (state.canCall) "콜 ${ChipFormat.format(state.callAmount)}" else "콜",
+                tint = HangameColors.BtnCall,
+                tintDark = HangameColors.BtnCallDark,
+                enabled = state.canCall,
+                a11y = A11yStrings.actionButton(ActionType.CALL, toCall = state.callAmount),
+                onClick = { onAction(Action(ActionType.CALL)) },
+                modifier = Modifier.weight(1f),
+            )
+            // 7스터드/HiLo 전용 "구사" 버튼 — 홀덤에서는 false.
+            if (state.canSaveLife) {
+                ActionButton(
+                    label = "구사",
+                    tint = HangameColors.BtnFold,
+                    tintDark = HangameColors.BtnFoldDark,
+                    enabled = true,
+                    a11y = "구사 (한국식 7스터드)",
+                    onClick = { onAction(Action(ActionType.SAVE_LIFE)) },
+                    modifier = Modifier.weight(1f),
+                )
+            }
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            ActionButton(
+                label = "쿼터 ${ChipFormat.format(quarterAmount)}",
+                tint = HangameColors.BtnQuarter,
+                tintDark = HangameColors.BtnQuarterDark,
+                enabled = state.canRaise && quarterAmount in state.minRaiseTotal..state.maxRaiseTotal,
+                a11y = A11yStrings.actionButton(ActionType.RAISE, amount = quarterAmount),
+                onClick = { dispatchRaise(quarterAmount) },
+                modifier = Modifier.weight(1f),
+            )
+            ActionButton(
+                label = "하프 ${ChipFormat.format(halfAmount)}",
+                tint = HangameColors.BtnHalf,
+                tintDark = HangameColors.BtnHalfDark,
+                enabled = state.canRaise && halfAmount in state.minRaiseTotal..state.maxRaiseTotal,
+                a11y = A11yStrings.actionButton(ActionType.RAISE, amount = halfAmount),
+                onClick = { dispatchRaise(halfAmount) },
+                modifier = Modifier.weight(1f),
+            )
+            ActionButton(
+                label = "팟 ${ChipFormat.format(potAmount)}",
+                tint = HangameColors.BtnQuarter,
+                tintDark = HangameColors.BtnQuarterDark,
+                enabled = state.canRaise && potAmount in state.minRaiseTotal..state.maxRaiseTotal,
+                a11y = A11yStrings.actionButton(ActionType.RAISE, amount = potAmount),
+                onClick = { dispatchRaise(potAmount) },
+                modifier = Modifier.weight(1f),
+            )
+            ActionButton(
+                label = "올인 ${ChipFormat.format(allInAmount)}",
+                tint = HangameColors.BtnAllIn,
+                tintDark = HangameColors.BtnAllInDark,
+                enabled = state.canRaise,
+                a11y = A11yStrings.actionButton(ActionType.ALL_IN, amount = allInAmount),
+                onClick = { onRequestConfirm(ActionType.ALL_IN, allInAmount) },
                 modifier = Modifier.weight(1f),
             )
         }
-        ActionButton(
-            label = "쿼터 ${ChipFormat.format(quarterAmount)}",
-            tint = HangameColors.BtnQuarter,
-            tintDark = HangameColors.BtnQuarterDark,
-            enabled = state.canRaise && quarterAmount in state.minRaiseTotal..state.maxRaiseTotal,
-            a11y = A11yStrings.actionButton(ActionType.RAISE, amount = quarterAmount),
-            onClick = { dispatchRaise(quarterAmount) },
-            modifier = Modifier.weight(1f),
-        )
-        ActionButton(
-            label = "하프 ${ChipFormat.format(halfAmount)}",
-            tint = HangameColors.BtnHalf,
-            tintDark = HangameColors.BtnHalfDark,
-            enabled = state.canRaise && halfAmount in state.minRaiseTotal..state.maxRaiseTotal,
-            a11y = A11yStrings.actionButton(ActionType.RAISE, amount = halfAmount),
-            onClick = { dispatchRaise(halfAmount) },
-            modifier = Modifier.weight(1f),
-        )
-        ActionButton(
-            label = "올인 ${ChipFormat.format(allInAmount)}",
-            tint = HangameColors.BtnAllIn,
-            tintDark = HangameColors.BtnAllInDark,
-            enabled = state.canRaise,
-            a11y = A11yStrings.actionButton(ActionType.ALL_IN, amount = allInAmount),
-            onClick = { onRequestConfirm(ActionType.ALL_IN, allInAmount) },
-            modifier = Modifier.weight(1f),
-        )
     }
 }
 
@@ -246,7 +266,7 @@ private fun previewState(
     override val myChips = myChips
 }
 
-@Preview(showBackground = true, widthDp = 1280, heightDp = 100, backgroundColor = 0xFF0B2D52)
+@Preview(showBackground = true, widthDp = 1280, heightDp = 130, backgroundColor = 0xFF0B2D52)
 @Composable
 private fun ActionBarPreviewPreflopCall() {
     PokerMasterTheme {

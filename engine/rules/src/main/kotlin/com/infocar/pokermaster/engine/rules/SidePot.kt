@@ -60,6 +60,13 @@ object SidePotCalculator {
                 minOf(p.committed, level) - minOf(p.committed, prev)
             }
 
+            // 이 layer 에 실제로 칩을 보탠 좌석. 자격자가 1명이어도 기여자가 여럿이면
+            // 환급이 아니라 남은 자격자가 이기는 contested pot 이다.
+            val contributors = commitments
+                .filter { p -> minOf(p.committed, level) - minOf(p.committed, prev) > 0L }
+                .map { it.seat }
+                .toSet()
+
             // 자격자: 이 레벨 이상 적립 + 살아있음 (폴드 X)
             val eligible = commitments
                 .filter { it.committed >= level && !it.folded }
@@ -72,7 +79,7 @@ object SidePotCalculator {
                     // 자격자 0 (모두 폴드한 layer) → 다음 핸드 이월 / dead money
                     dead += potAmount
                 }
-                eligible.size == 1 -> {
+                eligible.size == 1 && contributors.size == 1 -> {
                     // 자기 혼자 적립한 layer → uncalled bet, 즉시 환급
                     val onlySeat = eligible.first()
                     uncalled.merge(onlySeat, potAmount) { a, b -> a + b }

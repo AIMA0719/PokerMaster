@@ -20,7 +20,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.infocar.pokermaster.core.model.PotSummary
-import com.infocar.pokermaster.core.ui.theme.PokerColors
+import com.infocar.pokermaster.core.ui.theme.HangameColors
 import com.infocar.pokermaster.core.ui.theme.PokerMasterTheme
 
 /**
@@ -43,12 +43,12 @@ fun SidePotDistribution(
     val winnerCount = pot.winnerSeats.size.coerceAtLeast(1)
     val perWinner = pot.amount / winnerCount
 
-    val goldBorder = BorderStroke(2.dp, PokerColors.Accent)
+    val goldBorder = BorderStroke(2.dp, HangameColors.PotValue)
 
     Surface(
         modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(12.dp),
-        color = MaterialTheme.colorScheme.surface,
+        color = HangameColors.SeatBg,
         tonalElevation = 2.dp,
         border = if (pot.winnerSeats.isNotEmpty()) goldBorder else null,
     ) {
@@ -62,12 +62,12 @@ fun SidePotDistribution(
                     Text(
                         text = label,
                         style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+                        color = HangameColors.TextSecondary,
                     )
                     Text(
                         text = ChipFormat.format(pot.amount),
                         style = MaterialTheme.typography.titleMedium,
-                        color = PokerColors.Accent,
+                        color = HangameColors.PotValue,
                         fontWeight = FontWeight.Bold,
                     )
                 }
@@ -81,12 +81,12 @@ fun SidePotDistribution(
                         Text(
                             text = "승자 분배",
                             style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                            color = HangameColors.TextMuted,
                         )
                         Text(
                             text = "+${ChipFormat.format(perWinner)}",
                             style = MaterialTheme.typography.titleSmall,
-                            color = PokerColors.Success,
+                            color = HangameColors.TextLime,
                             fontWeight = FontWeight.SemiBold,
                         )
                     }
@@ -118,7 +118,7 @@ fun SidePotDistribution(
                     Text(
                         text = label,
                         style = MaterialTheme.typography.labelMedium,
-                        color = if (isWinner) PokerColors.Accent else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
+                        color = if (isWinner) HangameColors.PotValue else HangameColors.TextMuted,
                         fontWeight = if (isWinner) FontWeight.SemiBold else FontWeight.Normal,
                     )
                 }
