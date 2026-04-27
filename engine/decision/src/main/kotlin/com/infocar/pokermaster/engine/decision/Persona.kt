@@ -62,6 +62,7 @@ object PersonaBias {
                 ActionType.COMPLETE -> 0.0
                 ActionType.BRING_IN -> 0.0    // 강제 액션 — 페르소나 영향 없음
                 ActionType.SAVE_LIFE -> (1.0 - persona.looseness) * 0.6   // tight 일수록 구사 선호
+                ActionType.DECLARE -> 0.0    // declare 는 페르소나 영향 없음 — 전략은 별도 모듈에서
             }
             c.copy(ev = c.ev + offsetMultiplier * unit)
         }

@@ -70,6 +70,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.infocar.pokermaster.core.model.Action
 import com.infocar.pokermaster.core.model.ActionType
+import com.infocar.pokermaster.core.model.Declaration
 import com.infocar.pokermaster.core.model.GameMode
 import com.infocar.pokermaster.core.model.GameState
 import com.infocar.pokermaster.core.model.PlayerState
@@ -242,6 +243,11 @@ fun TableScreen(
         TableContent(
             state = displayState,
             onAction = onHumanActionWithSfx,
+            onDeclare = { decl ->
+                if (sfxPolicy.hapticEnabled) haptic.onAction()
+                if (sfxPolicy.soundEnabled) sound.play(SfxKind.ChipCommit)
+                viewModel.onDeclare(decl)
+            },
             onNextHand = viewModel::onNextHand,
             onSurrender = viewModel::onSurrender,
             onExit = onExitSettled,
@@ -292,6 +298,8 @@ internal fun TableContent(
     onSurrender: () -> Unit,
     onExit: () -> Unit,
     modifier: Modifier = Modifier,
+    /** 7-Stud Hi-Lo declare 단계 사람 좌석 선언 콜백. 비활성 단계에선 미사용. */
+    onDeclare: (Declaration) -> Unit = {},
     guideEnabled: Boolean = true,
     onToggleGuide: () -> Unit = {},
     autoNextCountdown: Int? = null,
@@ -388,20 +396,39 @@ internal fun TableContent(
                 }
             }
 
-            // 6) 하단 액션바 — 쇼다운 / 프리딜 대기 동안에는 액션바/Waiting 토스트 모두 숨김.
-            if (actionBarState != null && state.pendingShowdown == null && dealReady) {
-                ActionBar(
-                    state = actionBarState,
-                    onAction = onAction,
-                    onRequestConfirm = { type, amount -> confirmAllIn = type to amount },
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .widthIn(max = 920.dp)
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                )
-            } else if (state.pendingShowdown == null && gameOver == null && dealReady) {
-                WaitingForNpc(modifier = Modifier.align(Alignment.BottomCenter).padding(12.dp))
+            // 6) 하단 액션바 / declare 시트 분기 — 쇼다운 / 프리딜 대기 동안에는 둘 다 숨김.
+            //   - DECLARE 단계 + 사람 차례: 일반 ActionBar 대신 DeclareSheet 만 노출.
+            //   - 그 외: 기존 ActionBar 분기.
+            val isHumanDeclareTurn = state.street == Street.DECLARE &&
+                state.toActSeat == humanSeat &&
+                state.pendingShowdown == null &&
+                dealReady
+            when {
+                isHumanDeclareTurn -> {
+                    DeclareSheet(
+                        onDeclare = onDeclare,
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .widthIn(max = 920.dp)
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                    )
+                }
+                actionBarState != null && state.pendingShowdown == null && dealReady -> {
+                    ActionBar(
+                        state = actionBarState,
+                        onAction = onAction,
+                        onRequestConfirm = { type, amount -> confirmAllIn = type to amount },
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .widthIn(max = 920.dp)
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                    )
+                }
+                state.pendingShowdown == null && gameOver == null && dealReady -> {
+                    WaitingForNpc(modifier = Modifier.align(Alignment.BottomCenter).padding(12.dp))
+                }
             }
 
             if (state.pendingShowdown != null && handEndData != null) {
@@ -689,6 +716,7 @@ private fun StreetLabel(street: Street) {
         Street.FIFTH -> "5th street"
         Street.SIXTH -> "6th street"
         Street.SEVENTH -> "7th street"
+        Street.DECLARE -> "선언"
         Street.SHOWDOWN -> "Showdown"
         else -> "—"
     }

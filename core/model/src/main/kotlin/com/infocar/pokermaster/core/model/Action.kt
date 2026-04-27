@@ -9,6 +9,7 @@ import kotlinx.serialization.Serializable
  *    예: 현재 commit 100 에서 RAISE to 300 하면 amount=300.
  *  - FOLD/CHECK/SAVE_LIFE 는 amount=0.
  *  - ALL_IN 은 amount = (현재 commit + 잔여 stack).
+ *  - [type] == [ActionType.DECLARE] 일 때만 [declaration] 이 의미. 그 외에는 무시.
  *
  * 모든 적법성 검증은 [com.infocar.pokermaster.engine.controller] 의 Reducer 가 담당.
  */
@@ -16,4 +17,5 @@ import kotlinx.serialization.Serializable
 data class Action(
     val type: ActionType,
     val amount: Long = 0L,
+    val declaration: Declaration? = null,
 )

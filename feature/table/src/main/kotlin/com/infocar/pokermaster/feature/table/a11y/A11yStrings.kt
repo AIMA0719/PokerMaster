@@ -2,6 +2,7 @@ package com.infocar.pokermaster.feature.table.a11y
 
 import com.infocar.pokermaster.core.model.ActionType
 import com.infocar.pokermaster.core.model.Card
+import com.infocar.pokermaster.core.model.Declaration
 import com.infocar.pokermaster.core.model.GameMode
 import com.infocar.pokermaster.core.model.PlayerState
 import com.infocar.pokermaster.core.model.Rank
@@ -130,6 +131,7 @@ object A11yStrings {
         Street.FIFTH -> "핍스 스트릿"
         Street.SIXTH -> "식스 스트릿"
         Street.SEVENTH -> "세븐스 스트릿"
+        Street.DECLARE -> "선언"
         Street.SHOWDOWN -> "쇼다운"
     }
 
@@ -157,6 +159,17 @@ object A11yStrings {
         ActionType.COMPLETE -> "콤플리트 ${chips(amount)} 버튼"
         ActionType.BRING_IN -> "브링인 ${chips(amount)} 버튼"
         ActionType.SAVE_LIFE -> "구사 버튼"
+        ActionType.DECLARE -> "선언 버튼"
+    }
+
+    /**
+     * 7-Stud Hi-Lo declare 시트의 개별 선언 버튼 contentDescription.
+     * @param declaration HIGH / LOW / SWING.
+     */
+    fun declareButton(declaration: Declaration): String = when (declaration) {
+        Declaration.HIGH -> "하이 선언 버튼"
+        Declaration.LOW -> "로우 선언 버튼"
+        Declaration.SWING -> "스윙 선언 버튼 (양방향)"
     }
 
     // --- Misc UI ------------------------------------------------------------

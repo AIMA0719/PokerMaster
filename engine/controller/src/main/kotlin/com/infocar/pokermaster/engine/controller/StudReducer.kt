@@ -3,6 +3,7 @@ package com.infocar.pokermaster.engine.controller
 import com.infocar.pokermaster.core.model.Action
 import com.infocar.pokermaster.core.model.ActionType
 import com.infocar.pokermaster.core.model.Card
+import com.infocar.pokermaster.core.model.Declaration
 import com.infocar.pokermaster.core.model.GameMode
 import com.infocar.pokermaster.core.model.GameState
 import com.infocar.pokermaster.core.model.PlayerState
@@ -165,6 +166,18 @@ object StudReducer {
     fun act(state: GameState, seat: Int, action: Action, rng: Rng): GameState {
         require(state.pendingShowdown == null) { "hand already ended — call ackShowdown and startHand" }
         require(state.toActSeat == seat) { "not seat $seat's turn (toAct=${state.toActSeat})" }
+
+        // DECLARE 단계: 별도 분기. all-in 도 declare 가능, active 검사 안 함.
+        if (state.street == Street.DECLARE) {
+            require(action.type == ActionType.DECLARE) {
+                "expected DECLARE action in declare phase, got ${action.type}"
+            }
+            val decl = requireNotNull(action.declaration) {
+                "DECLARE action requires non-null Action.declaration payload"
+            }
+            return applyDeclare(state, seat, decl)
+        }
+
         val player = state.players.first { it.seat == seat }
         require(player.active) { "player at seat $seat is not active" }
 
@@ -176,6 +189,7 @@ object StudReducer {
             ActionType.ALL_IN -> applyAllIn(state, seat)
             ActionType.BRING_IN -> applyCall(state, seat) // 강제 브링인 — 사용자 선택 X, 들어오면 콜로 강등
             ActionType.SAVE_LIFE -> applySaveLife(state, seat) // §3.3.C 한국식 구사 (잠정 사양)
+            ActionType.DECLARE -> error("DECLARE only valid during Street.DECLARE")
         }
 
         if (s0.players.count { !it.folded } == 1) {
@@ -191,8 +205,48 @@ object StudReducer {
     }
 
     /**
+     * 한국식 7-Stud Hi-Lo declare 적용. 살아있는 좌석 한 명씩 차례로 호출.
+     * 모든 살아있는 좌석이 완료되면 자동으로 [runShowdown] 으로 전이.
+     *
+     *  - 폴드한 좌석은 declare 안 함 (toActSeat 가 자동으로 건너뜀).
+     *  - all-in 도 declare 해야 함 (베팅 단계와 달리 active 검사 없음).
+     *  - 같은 좌석이 두 번 declare 시도하면 IAE (toActSeat 가치 검증).
+     */
+    private fun applyDeclare(state: GameState, seat: Int, declaration: Declaration): GameState {
+        require(state.street == Street.DECLARE) { "applyDeclare only valid in Street.DECLARE" }
+        require(state.toActSeat == seat) { "not seat $seat's turn (toAct=${state.toActSeat})" }
+        val player = state.players.first { it.seat == seat }
+        require(player.alive) { "folded player cannot declare (seat $seat)" }
+        require(seat !in state.declarations) { "seat $seat already declared" }
+
+        val newDecls = state.declarations + (seat to declaration)
+        // 다음 미선언 살아있는 좌석. 없으면 SHOWDOWN.
+        val pending = state.players
+            .filter { it.alive && it.seat !in newDecls }
+            .map { it.seat }
+            .sorted()
+        return if (pending.isEmpty()) {
+            runShowdown(
+                state.copy(
+                    declarations = newDecls,
+                    street = Street.SHOWDOWN,
+                    toActSeat = null,
+                    stateVersion = state.stateVersion + 1,
+                )
+            )
+        } else {
+            val nextSeat = pending.firstOrNull { it > seat } ?: pending.first()
+            state.copy(
+                declarations = newDecls,
+                toActSeat = nextSeat,
+                stateVersion = state.stateVersion + 1,
+            )
+        }
+    }
+
+    /**
      * 한 스트릿 종료 후, 다음 스트릿에서도 모두 all-in 상태로 즉시 라운드 완료라면 계속 전진.
-     * 7th 통과 후 쇼다운.
+     * 7th 통과 후 — HiLo 모드면 declare 단계로, 아니면 즉시 쇼다운.
      */
     private fun runoutOrShowdown(s: GameState, rng: Rng): GameState {
         var cur = s
@@ -202,13 +256,30 @@ object StudReducer {
                 Street.FOURTH -> Street.FIFTH
                 Street.FIFTH -> Street.SIXTH
                 Street.SIXTH -> Street.SEVENTH
-                Street.SEVENTH ->
-                    return runShowdown(cur.copy(street = Street.SHOWDOWN, toActSeat = null))
+                Street.SEVENTH -> return enterDeclareOrShowdown(cur)
                 else -> error("unexpected street ${cur.street}")
             }
             cur = advanceToStreet(cur, next, rng)
             if (!isBettingRoundComplete(cur)) return cur
         }
+    }
+
+    /**
+     * 7th street 베팅 종료 후 분기:
+     *  - HiLo 모드 + 살아있는 플레이어 ≥ 2: [Street.DECLARE] 진입, 첫 살아있는 좌석을 toAct 로.
+     *  - 그 외 (Hi-only 또는 단독 생존): 즉시 SHOWDOWN.
+     */
+    private fun enterDeclareOrShowdown(s: GameState): GameState {
+        val live = s.players.filter { !it.folded }.map { it.seat }.sorted()
+        if (s.mode == GameMode.SEVEN_STUD_HI_LO && live.size >= 2) {
+            return s.copy(
+                street = Street.DECLARE,
+                toActSeat = live.first(),
+                declarations = emptyMap(),
+                stateVersion = s.stateVersion + 1,
+            )
+        }
+        return runShowdown(s.copy(street = Street.SHOWDOWN, toActSeat = null))
     }
 
     fun ackShowdown(state: GameState): GameState {
@@ -468,17 +539,29 @@ object StudReducer {
                     p.seat to HandEvaluatorHiLo.evaluateLow(p.holeCards + p.upCards)
                 }
             } else emptyMap()
+            val activeDeclarations = if (isHiLo && state.declarations.isNotEmpty()) {
+                state.declarations
+            } else null
             payouts = ShowdownResolver.resolveAll(
                 result = sideResult,
                 hi = bestHands,
                 lo = lowHands,
                 seatOrderForOdd = seatOrder,
                 hiLoSplit = isHiLo,
+                declarations = activeDeclarations,
             )
             potSummaries = sideResult.pots.mapIndexed { idx, pot ->
-                val hiWinners = winnersForPot(pot.eligibleSeats, bestHands).toSet()
+                val hiWinners = if (activeDeclarations != null) {
+                    declareHiWinners(pot.eligibleSeats, bestHands, lowHands, activeDeclarations).toSet()
+                } else {
+                    winnersForPot(pot.eligibleSeats, bestHands).toSet()
+                }
                 val loWinners = if (isHiLo) {
-                    loWinnersForPot(pot.eligibleSeats, lowHands).toSet()
+                    if (activeDeclarations != null) {
+                        declareLoWinners(pot.eligibleSeats, bestHands, lowHands, activeDeclarations).toSet()
+                    } else {
+                        loWinnersForPot(pot.eligibleSeats, lowHands).toSet()
+                    }
                 } else emptySet()
                 PotSummary(
                     amount = pot.amount,
@@ -539,6 +622,67 @@ object StudReducer {
         return sub.filter { it.second.compareTo(min) == 0 }.map { it.first }
     }
 
+    /**
+     * declare 모드에서 hi-side 승자(들). [ShowdownResolver.resolveDeclare] 와 동일한 SWING 자격
+     * 검증 룰을 적용해 PotSummary 표기용 hi/lo 승자 집합을 계산.
+     */
+    private fun declareHiWinners(
+        eligible: Set<Int>,
+        hi: Map<Int, HandValue>,
+        lo: Map<Int, LowValue?>,
+        declarations: Map<Int, Declaration>,
+    ): List<Int> {
+        val pools = declarePools(eligible, hi, lo, declarations)
+        return winnersForPot(pools.first, hi)
+    }
+
+    private fun declareLoWinners(
+        eligible: Set<Int>,
+        hi: Map<Int, HandValue>,
+        lo: Map<Int, LowValue?>,
+        declarations: Map<Int, Declaration>,
+    ): List<Int> {
+        val pools = declarePools(eligible, hi, lo, declarations)
+        return loWinnersForPot(pools.second, lo)
+    }
+
+    /**
+     * declare 모드 pot 후보군 산출 — SWING 자격 검증 후 hi/lo 후보 Set 을 (hiPool, loPool) 로 반환.
+     * [ShowdownResolver.resolveDeclare] 와 룰을 동일하게 유지해야 함.
+     */
+    private fun declarePools(
+        eligible: Set<Int>,
+        hi: Map<Int, HandValue>,
+        lo: Map<Int, LowValue?>,
+        declarations: Map<Int, Declaration>,
+    ): Pair<Set<Int>, Set<Int>> {
+        val highDeclarers = eligible.filter { declarations[it] == Declaration.HIGH }
+        val lowDeclarers = eligible.filter { declarations[it] == Declaration.LOW }
+        val swingDeclarers = eligible.filter { declarations[it] == Declaration.SWING }
+        val nonSwingHiCandidates = highDeclarers + swingDeclarers
+        val nonSwingLoCandidates = lowDeclarers.filter { lo[it] != null }
+        val swingDisqualified = mutableSetOf<Int>()
+        for (s in swingDeclarers) {
+            val myHi = hi[s]
+            val myLo = lo[s]
+            val hiBeaten = nonSwingHiCandidates
+                .filter { it != s }
+                .any { other -> hi[other]?.let { it > (myHi ?: HandValue.MIN) } == true }
+            val otherSwingLoCandidates = swingDeclarers.filter { it != s && lo[it] != null }
+            val loBeaten = if (myLo == null) {
+                true
+            } else {
+                (nonSwingLoCandidates + otherSwingLoCandidates)
+                    .any { other -> lo[other]?.let { it < myLo } == true }
+            }
+            if (hiBeaten || loBeaten) swingDisqualified.add(s)
+        }
+        val qualifiedSwing = swingDeclarers - swingDisqualified
+        val hiPool = (highDeclarers + qualifiedSwing).toSet()
+        val loPool = (lowDeclarers + qualifiedSwing).filter { lo[it] != null }.toSet()
+        return hiPool to loPool
+    }
+
     // ------------------------------------------------------- Stud helpers
 
     /** 가장 약한 up-card 좌석 (rank asc, 동률 시 suit asc — ♣ 가장 약). */
@@ -565,17 +709,25 @@ object StudReducer {
      * 무시되고 단일 high card 좌석이 first-to-act 로 잘못 선정. 본 함수는 1~4장 upcards 에 대해
      * 직접 패턴을 감지해 정통 7스터드 룰을 만족시킨다.
      */
-    private fun bestExposedSeat(players: List<PlayerState>): Int {
-        val candidates = players.filter { it.active && it.upCards.isNotEmpty() }
-        if (candidates.isEmpty()) {
-            // 모두 all-in/folded — fallback: 살아있는 첫 좌석 (어차피 isBettingRoundComplete 가 즉시 true 처리)
-            return players.firstOrNull { !it.folded }?.seat ?: 0
+    private fun bestExposedSeat(players: List<PlayerState>): Int? {
+        val activeWithUp = players.filter { it.active && it.upCards.isNotEmpty() }
+        if (activeWithUp.isNotEmpty()) {
+            val best = activeWithUp.maxWithOrNull(
+                compareBy(LIST_OF_INT_LEX) { p -> exposedStrengthKey(p.upCards) }
+            )!!
+            return best.seat
         }
-        // List<Int> 자연 사전식 비교 — 앞쪽 원소 우선. 큰 값이 강함.
-        val best = candidates.maxWithOrNull(
-            compareBy(LIST_OF_INT_LEX) { p -> exposedStrengthKey(p.upCards) }
-        )!!
-        return best.seat
+        // active 인 좌석에 upCards 가 없는 케이스 — 정상 흐름엔 발생하지 말아야 하지만,
+        // 살아있는 (folded 아닌) 좌석 중 upCards 가 있는 좌석으로 fallback.
+        val liveWithUp = players.filter { !it.folded && it.upCards.isNotEmpty() }
+        if (liveWithUp.isNotEmpty()) {
+            return liveWithUp.maxWithOrNull(
+                compareBy(LIST_OF_INT_LEX) { p -> exposedStrengthKey(p.upCards) }
+            )!!.seat
+        }
+        // 폴드 안 한 첫 좌석조차 없거나 upCards 가 비어있으면 호출자가 처리하도록 null.
+        // 무효한 seat=0 fallback 은 절대 금지(좌석 0 이 폴드 상태일 수 있음).
+        return null
     }
 
     /**
@@ -602,7 +754,8 @@ object StudReducer {
             else -> 0
         }
         val groupRanks = groups.map { it[0] }    // 각 그룹 대표 rank
-        val maxSuitOrd = upCards.maxOf { it.suit.ordinal }
+        // upCards 가 비어있으면 위 가드에서 이미 return 했으므로 maxOf 안전 — 그래도 maxOfOrNull 로 방어.
+        val maxSuitOrd = upCards.maxOfOrNull { it.suit.ordinal } ?: 0
         return listOf(tier) + groupRanks + listOf(maxSuitOrd)
     }
 

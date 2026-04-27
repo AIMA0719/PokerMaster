@@ -2,13 +2,17 @@ package com.infocar.pokermaster.engine.controller
 
 import com.infocar.pokermaster.core.model.Action
 import com.infocar.pokermaster.core.model.ActionType
+import com.infocar.pokermaster.core.model.Declaration
 import com.infocar.pokermaster.core.model.GameState
 import com.infocar.pokermaster.core.model.PlayerState
+import com.infocar.pokermaster.core.model.Street
 import com.infocar.pokermaster.engine.controller.llm.LlmAdvisor
 import com.infocar.pokermaster.engine.decision.ActionCandidate
 import com.infocar.pokermaster.engine.decision.DecisionCore
 import com.infocar.pokermaster.engine.decision.GameContext
 import com.infocar.pokermaster.engine.decision.Persona
+import com.infocar.pokermaster.engine.rules.HandCategory
+import com.infocar.pokermaster.engine.rules.HandEvaluatorHiLo
 import kotlinx.coroutines.withTimeoutOrNull
 
 /**
@@ -26,6 +30,8 @@ class AiDriver(
 ) {
 
     fun act(state: GameState, seat: Int, persona: Persona?): Action {
+        // DECLARE 단계: LLM/EquityCore 우회 — 7장 hi/lo 핸드 강도 휴리스틱으로 직접 결정.
+        if (state.street == Street.DECLARE) return declareAction(state, seat)
         // 7스터드 3rd street monster (rolled-up) 안전장치. equity 노이즈로 약하게 평가될 수 있는 패턴.
         StudOpener.overrideOnThirdStreet(state, seat)?.let { return it }
         val ctx = buildContext(state, seat)
@@ -54,6 +60,8 @@ class AiDriver(
         advisor: LlmAdvisor?,
         timeoutMs: Long = DEFAULT_LLM_TIMEOUT_MS,
     ): Action {
+        // DECLARE 단계: advisor 가 declare 를 모르므로 우회 — 룰 기반 휴리스틱 직접 사용.
+        if (state.street == Street.DECLARE) return declareAction(state, seat)
         // 7스터드 3rd street monster 우선 처리 — LLM 컨설트 비용/지연 회피.
         StudOpener.overrideOnThirdStreet(state, seat)?.let { return it }
         val ctx = buildContext(state, seat)
@@ -113,6 +121,40 @@ class AiDriver(
 
     private fun totalPot(state: GameState): Long =
         state.players.sumOf { it.committedThisHand }
+
+    /**
+     * 7-Stud Hi-Lo 한국식 declare 휴리스틱.
+     *
+     *  보수적 룰:
+     *  - 7장(hole+up) 으로 hi 카테고리 + lo 자격(8-or-better) 평가.
+     *  - lo 자격 + hi >= STRAIGHT → SWING (정말 강할 때만).
+     *  - lo 자격만 + hi <= ONE_PAIR → LOW (lo 만 노림).
+     *  - lo 자격 + hi 가 TWO_PAIR/THREE_OF_A_KIND → LOW (양방향 충돌 위험 회피, lo 만 안전).
+     *  - lo 자격 없음 + hi 강함 (>= TWO_PAIR) → HIGH.
+     *  - 그 외 (lo 자격 없음 + hi 약함) → HIGH (디폴트, 최소 1자리 노림).
+     *
+     *  7장 미만(이상-드문) 케이스는 디폴트 HIGH.
+     */
+    internal fun declareAction(state: GameState, seat: Int): Action {
+        val me = state.players.firstOrNull { it.seat == seat }
+            ?: return Action(ActionType.DECLARE, declaration = Declaration.HIGH)
+        val seven = me.holeCards + me.upCards
+        if (seven.size != 7) {
+            return Action(ActionType.DECLARE, declaration = Declaration.HIGH)
+        }
+        val hi = HandEvaluatorHiLo.evaluateHigh(seven)
+        val lo = HandEvaluatorHiLo.evaluateLow(seven)
+        val hasLo = lo != null
+        val hiStrong = hi.category.strength >= HandCategory.STRAIGHT.strength
+        val hiMid = hi.category.strength >= HandCategory.TWO_PAIR.strength
+        val declaration = when {
+            hasLo && hiStrong -> Declaration.SWING
+            hasLo -> Declaration.LOW
+            hiMid -> Declaration.HIGH
+            else -> Declaration.HIGH
+        }
+        return Action(ActionType.DECLARE, declaration = declaration)
+    }
 
     private fun legalize(state: GameState, seat: Int, cand: ActionCandidate): Action {
         val me = state.players.first { it.seat == seat }
