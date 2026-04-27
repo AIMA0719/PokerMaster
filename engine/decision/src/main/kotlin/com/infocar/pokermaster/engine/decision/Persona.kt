@@ -62,6 +62,11 @@ object PersonaBias {
                 ActionType.COMPLETE -> 0.0
                 ActionType.BRING_IN -> 0.0    // 강제 액션 — 페르소나 영향 없음
                 ActionType.SAVE_LIFE -> (1.0 - persona.looseness) * 0.6   // tight 일수록 구사 선호
+                // 한국식 Hi-Lo 선언 — amount=0 의 방향 결정. EV 가중치 적용 대상 아님(선언 결정은
+                // EquityCalculator + Hi/Lo 강도 휴리스틱이 담당). 페르소나 bias 0.
+                ActionType.DECLARE_HI,
+                ActionType.DECLARE_LO,
+                ActionType.DECLARE_BOTH -> 0.0
             }
             c.copy(ev = c.ev + offsetMultiplier * unit)
         }
