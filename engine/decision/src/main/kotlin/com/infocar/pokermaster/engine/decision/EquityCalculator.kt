@@ -227,7 +227,7 @@ class EquityCalculator(private val seed: Long? = null) {
             pos += needForMe
 
             val myHi = HandEvaluatorHiLo.evaluateHigh(mySim)
-            val myLo = evalLow(mySim)
+            val myLo = HandEvaluatorHiLo.evaluateLow(mySim)
 
             // hi: 단독 최대인지. lo: 단독 최소(LowValue 작을수록 강)인지.
             var hiTiesIncludingMe = 1   // 본인 포함 동률 수
@@ -249,7 +249,7 @@ class EquityCalculator(private val seed: Long? = null) {
                     // cmpHi > 0: 본인이 이 상대 이김 — 별도 카운트 불필요
                 }
 
-                val opLo = evalLow(opSim)
+                val opLo = HandEvaluatorHiLo.evaluateLow(opSim)
                 val cmpLo = myLo.compareTo(opLo)   // 작을수록 강
                 when {
                     cmpLo > 0 -> loBeatenByOpp = true
@@ -324,16 +324,6 @@ class EquityCalculator(private val seed: Long? = null) {
         }
     }
 
-    /**
-     * Lo 평가 호환 wrapper.
-     *
-     * TODO(Team Rules merge): [HandEvaluatorHiLo.evaluateLow] 가 non-null [LowValue] 반환으로
-     * 시그니처 변경 예정 (8-or-better qualifier 제거, 한국식 항상 평가). 통합 후 이 wrapper 와
-     * [WORST_LOW] fallback 은 제거 가능 — `?:` 부분이 자연스레 no-op 됨.
-     */
-    private fun evalLow(seven: List<Card>): LowValue =
-        HandEvaluatorHiLo.evaluateLow(seven) ?: WORST_LOW
-
     internal companion object {
         /**
          * Hi-Lo 한 시뮬 iteration 의 본인 점유율 (legacy 8-or-better 모델).
@@ -376,15 +366,6 @@ class EquityCalculator(private val seed: Long? = null) {
             de.bothEquity * 1.0,
         )
 
-        /**
-         * 한국식 룰: lo qualify 가 없어도 lo 평가는 항상 가능해야 한다.
-         * 현 worktree 의 [HandEvaluatorHiLo.evaluateLow] 가 nullable 인 동안
-         * "최악의 lo" 로 fallback. Team Rules 통합 후 제거 예정.
-         */
-        private val WORST_LOW: LowValue = LowValue(
-            tiebreakersDesc = listOf(99, 99, 99, 99, 99),  // 어떤 정상 LowValue 보다도 큼 = 가장 약한 lo
-            cards = emptyList(),
-        )
     }
 }
 

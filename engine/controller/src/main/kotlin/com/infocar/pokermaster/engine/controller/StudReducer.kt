@@ -623,8 +623,7 @@ object StudReducer {
      * 차이:
      *  - HiLo split 강제 (mode == SEVEN_STUD_HI_LO 전제 — 호출 측 가드).
      *  - 자격: alive 좌석 모두 declaration != null (Street.DECLARE 종료 시점).
-     *  - 분배: ShowdownResolver.resolveAllDeclare(...) — declarations 까지 입력.
-     *    Team Rules merge 전에는 [resolveAllDeclareStub] 가 임시 대체.
+     *  - 분배: ShowdownResolver.resolveAllDeclare(...) — declarations 까지 입력. payouts 에 uncalled 합산 포함.
      *
      * 단일 alive 좌석 케이스는 runoutOrShowdown 가 [enterDeclareStreet] 진입을 막아주므로 본 함수
      * 호출 시점에는 항상 alive ≥ 2.
@@ -640,9 +639,8 @@ object StudReducer {
         val bestHands: Map<Int, HandValue> = live.associate { p ->
             p.seat to HandEvaluator7Stud.evaluateBest(p.holeCards + p.upCards)
         }
-        // Team Rules 후속: HandEvaluatorHiLo.evaluateLow 가 non-null LowValue 로 변경됨.
-        // 현재는 nullable → !! 강제 X. 임시로 null 좌석은 분배 대상 제외 처리 (스텁).
-        val lowHandsRaw: Map<Int, LowValue?> = live.associate { p ->
+        // Team Rules 머지 후: HandEvaluatorHiLo.evaluateLow 가 non-null LowValue 반환 (한국식, 자격 제한 없음).
+        val lowHands: Map<Int, LowValue> = live.associate { p ->
             p.seat to HandEvaluatorHiLo.evaluateLow(p.holeCards + p.upCards)
         }
         val declarations: Map<Int, DeclareDirection> = live.associate { p ->
@@ -650,11 +648,11 @@ object StudReducer {
                 ?: error("alive seat ${p.seat} has no declaration at runShowdownDeclare"))
         }
 
-        // Team Rules 통합 후 — ShowdownResolver.resolveAllDeclare(sideResult, bestHands, lowHandsRaw, declarations, seatOrder).
-        val outcome = resolveAllDeclareStub(
+        // Team Rules 분배기 — payouts 에는 uncalledReturn 까지 합산되어 들어옴.
+        val outcome = ShowdownResolver.resolveAllDeclare(
             result = sideResult,
             hi = bestHands,
-            lo = lowHandsRaw,
+            lo = lowHands,
             declarations = declarations,
             seatOrderForOdd = seatOrder,
         )
@@ -682,11 +680,7 @@ object StudReducer {
                 bestFive = hv.cards,
             )
         }
-        val payouts = outcome.payouts.toMutableMap()
-        // uncalled 환급 합산 (resolveAll 과 동등 시맨틱).
-        for ((seat, amount) in sideResult.uncalledReturn) {
-            payouts.merge(seat, amount) { a, b -> a + b }
-        }
+        val payouts = outcome.payouts
 
         val newPlayers = state.players.map { p ->
             val gain = payouts[p.seat] ?: 0L
@@ -711,48 +705,6 @@ object StudReducer {
             paused = true,
             stateVersion = state.stateVersion + 1,
         )
-    }
-
-    // -------------------------------------------------------
-    // TEMPORARY STUB — Team Rules merge 후 제거.
-    //
-    // Team Rules 가 ShowdownResolver.resolveAllDeclare(sideResult, hi, lo, declarations, seatOrder)
-    // 와 ResolveAllDeclareOutcome / PotDeclareOutcome 데이터 클래스를 추가하면 본 스텁 + 데이터 클래스
-    // 정의를 모두 삭제하고 호출부 (runShowdownDeclare) 의 resolveAllDeclareStub(...) 호출을
-    // ShowdownResolver.resolveAllDeclare(...) 로 교체.
-    //
-    // 동작 (스텁):
-    //  - payouts: 빈 맵 (모든 칩 보존 X — 테스트는 state-machine progression 만 검증).
-    //  - perPotOutcomes: 각 팟마다 빈 hi/lo/scoop 셋.
-    //
-    // 이 스텁은 컴파일을 위한 placeholder 일 뿐, 실제 분배 로직은 Team Rules 가 책임진다.
-    // -------------------------------------------------------
-
-    /** TODO Team Rules merge: replace stub with ShowdownResolver.resolveAllDeclare */
-    private data class StubPotDeclareOutcome(
-        val potIndex: Int,
-        val hiWinners: Set<Int> = emptySet(),
-        val loWinners: Set<Int> = emptySet(),
-        val scoopWinners: Set<Int> = emptySet(),
-    )
-
-    /** TODO Team Rules merge: replace stub with ShowdownResolver.resolveAllDeclare */
-    private data class StubResolveAllDeclareOutcome(
-        val payouts: Map<Int, Long>,
-        val perPotOutcomes: List<StubPotDeclareOutcome>,
-    )
-
-    /** TODO Team Rules merge: replace stub with ShowdownResolver.resolveAllDeclare */
-    @Suppress("UNUSED_PARAMETER")
-    private fun resolveAllDeclareStub(
-        result: com.infocar.pokermaster.engine.rules.SidePotResult,
-        hi: Map<Int, HandValue>,
-        lo: Map<Int, LowValue?>,
-        declarations: Map<Int, DeclareDirection>,
-        seatOrderForOdd: List<Int>,
-    ): StubResolveAllDeclareOutcome {
-        val perPot = result.pots.mapIndexed { idx, _ -> StubPotDeclareOutcome(potIndex = idx) }
-        return StubResolveAllDeclareOutcome(payouts = emptyMap(), perPotOutcomes = perPot)
     }
 
     private fun winnersForPot(eligible: Set<Int>, hi: Map<Int, HandValue>): List<Int> {

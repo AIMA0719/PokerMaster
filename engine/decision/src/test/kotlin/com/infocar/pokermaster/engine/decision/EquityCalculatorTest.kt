@@ -178,17 +178,19 @@ class EquityCalculatorTest {
         assertThat(de.bothEquity).isAtLeast(0.4)
     }
 
-    @Test fun korean_hi_lo_weak_hi_weak_lo_all_low() {
-        // 본인 약한 hi (9 high) + 약한 lo (8 high). 상대 1명 random.
+    @Test fun korean_hi_lo_weak_hi_strong_lo_via_unpaired() {
+        // 본인 hi 약함 (9 high) — 상대 AA up 에 hi 패배 빈번.
+        // 그러나 한국식엔 자격 제한 없으므로 본인 무페어 9-low (9-8-7-5-3) 가
+        // 상대 AA paired 핸드의 unpaired-5 (K-Q-A + hidden 2장) 보다 거의 항상 강함.
         val mine = hand("9S", "8H", "7D", "5C", "3D", "TH", "KC")
-        val oppUp = hand("AC", "AS", "KD", "QH")  // 상대 강한 up — AA 시나리오
+        val oppUp = hand("AC", "AS", "KD", "QH")
         val deck = deckMinus(mine + oppUp)
         val de = calc().declareEquity(mine, listOf(oppUp), deck, iterations = 1_500)
         // 상대 AA up 강함 — hi 패배 빈번
         assertThat(de.hiEquity).isAtMost(0.4)
-        // 상대도 lo 가 fill 으로 만들어질 수 있음 — lo 도 압도적 아님
-        assertThat(de.loEquity).isAtMost(0.7)
-        // both 는 strict — 매우 낮음
+        // 한국식: 무페어 9-low 가 K-Q-A 조합보다 항상 강함 → loEquity 높음
+        assertThat(de.loEquity).isAtLeast(0.85)
+        // both 는 hi 가 약하므로 strict 실패 — 매우 낮음
         assertThat(de.bothEquity).isAtMost(0.2)
     }
 

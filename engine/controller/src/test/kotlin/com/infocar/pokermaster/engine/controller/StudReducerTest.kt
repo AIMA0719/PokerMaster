@@ -466,12 +466,16 @@ class StudReducerTest {
         )
         val totalBefore = s.players.sumOf { it.chips + it.committedThisHand }
 
-        // 모두 콜/체크로 끝까지 진행.
+        // 모두 콜/체크로 끝까지 진행. Hi-Lo 는 7th 후 DECLARE 단계 진입 — 본 테스트는 모두 HI 선언으로 통과.
         var guard = 0
-        while (s.pendingShowdown == null && guard++ < 80) {
+        while (s.pendingShowdown == null && guard++ < 200) {
             val seat = s.toActSeat ?: break
             val me = s.players.first { it.seat == seat }
-            val a = if (me.committedThisStreet >= s.betToCall) ActionType.CHECK else ActionType.CALL
+            val a = when {
+                s.street == Street.DECLARE -> ActionType.DECLARE_HI
+                me.committedThisStreet >= s.betToCall -> ActionType.CHECK
+                else -> ActionType.CALL
+            }
             s = StudReducer.act(s, seat, Action(a), r)
         }
         assertThat(s.pendingShowdown).isNotNull()
