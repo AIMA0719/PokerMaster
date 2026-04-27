@@ -54,6 +54,12 @@ fun ActionBar(
     onRequestConfirm: (ActionType, Long) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    // HiLo UI: Street.DECLARE 분기 — 표준 베팅 6버튼 대신 [하이][로우][양방향] 3버튼 모드.
+    if (state.isDeclarePhase) {
+        DeclareActionBar(onAction = onAction, modifier = modifier)
+        return
+    }
+
     val potSize = state.potSize.coerceAtLeast(1L)
     val callAbs = state.currentCommitted + state.callAmount
 
@@ -241,6 +247,102 @@ internal fun safeCoerceIn(value: Long, min: Long, max: Long): Long =
 
 /** ActionBar 버튼 디바운스 시간 (ms). 빠른 더블탭/연타 방지. */
 private const val ACTION_TAP_THROTTLE_MS = 350L
+
+// -----------------------------------------------------------------------------
+// HiLo Declare phase — [하이][로우][양방향] 3버튼 액션바.
+// -----------------------------------------------------------------------------
+
+/**
+ * 한국식 7스터드 Hi-Lo 선언 액션바.
+ *
+ *  - [하이]: HI 사이드만 경쟁
+ *  - [로우]: LO 사이드만 경쟁
+ *  - [양방향 (위험)]: scoop 시 팟 전체. 두 방향 모두 단독 1등 필수 — 실패 시 0. warning 보더로 강조.
+ *
+ * 다이/체크 등 베팅 버튼 일체 비노출. 각 버튼은 amount=0 인 DECLARE_HI/LO/BOTH 액션을 디스패치.
+ */
+@Composable
+private fun DeclareActionBar(
+    onAction: OnAction,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        ActionButton(
+            label = "하이",
+            tint = HangameColors.BtnQuarter,
+            tintDark = HangameColors.BtnQuarterDark,
+            enabled = true,
+            a11y = A11yStrings.declarePromptHi,
+            onClick = { onAction(Action(ActionType.DECLARE_HI, 0L)) },
+            modifier = Modifier.weight(1f),
+        )
+        ActionButton(
+            label = "로우",
+            tint = HangameColors.BtnHalf,
+            tintDark = HangameColors.BtnHalfDark,
+            enabled = true,
+            a11y = A11yStrings.declarePromptLo,
+            onClick = { onAction(Action(ActionType.DECLARE_LO, 0L)) },
+            modifier = Modifier.weight(1f),
+        )
+        DeclareBothRiskyButton(
+            onClick = { onAction(Action(ActionType.DECLARE_BOTH, 0L)) },
+            modifier = Modifier.weight(1f),
+        )
+    }
+}
+
+/**
+ * 양방향(BOTH) 전용 강조 버튼 — 위험 강조용 보더 + 굵은 라벨.
+ *
+ * 일반 [ActionButton] 과 시각적으로 구분되도록 외곽선을 밝은 골드(=PotValue)로 두껍게.
+ */
+@Composable
+private fun DeclareBothRiskyButton(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val gradient = Brush.verticalGradient(listOf(HangameColors.BtnAllIn, HangameColors.BtnAllInDark))
+    val lastTapAt = remember { mutableLongStateOf(0L) }
+
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(44.dp)
+            .pressScale(enabled = true)
+            .clip(RoundedCornerShape(8.dp))
+            .background(gradient)
+            .border(
+                BorderStroke(2.dp, HangameColors.PotValue),
+                RoundedCornerShape(8.dp),
+            )
+            .pointerInput(Unit) {
+                detectTapGestures(onTap = {
+                    val now = System.currentTimeMillis()
+                    if (now - lastTapAt.longValue >= ACTION_TAP_THROTTLE_MS) {
+                        lastTapAt.longValue = now
+                        onClick()
+                    }
+                })
+            }
+            .semantics { contentDescription = A11yStrings.declarePromptBoth },
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = "양방향 (위험)",
+            fontSize = 14.sp,
+            color = HangameColors.PotValue,
+            fontWeight = FontWeight.Black,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            textAlign = TextAlign.Center,
+        )
+    }
+}
 
 // -----------------------------------------------------------------------------
 // Previews
