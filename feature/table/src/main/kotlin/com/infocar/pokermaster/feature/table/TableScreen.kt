@@ -213,6 +213,33 @@ fun TableScreen(
         viewModel.onHumanAction(action)
     }
 
+    // CardDeal — 스트릿이 카드 딜링 단계로 진입할 때 1회. dealReady=false 면 프리딜 대기 중이라 스킵.
+    // PREFLOP / FLOP / TURN / RIVER (홀덤) + THIRD..SEVENTH (7스터드) 모두 카드 분배 트리거.
+    LaunchedEffect(state.street, dealReady) {
+        if (!dealReady) return@LaunchedEffect
+        if (!sfxPolicy.soundEnabled) return@LaunchedEffect
+        when (state.street) {
+            Street.PREFLOP, Street.FLOP, Street.TURN, Street.RIVER,
+            Street.THIRD, Street.FOURTH, Street.FIFTH, Street.SIXTH, Street.SEVENTH ->
+                sound.play(SfxKind.CardDeal)
+            else -> Unit
+        }
+    }
+
+    // PotSweep + HandWin — pendingShowdown 가 채워진 시점(쇼다운 진입) 1회.
+    // PotSweep: 즉시. HandWin: 600ms 후 — 두 사운드가 겹치지 않게 분리.
+    val showdownActive = state.pendingShowdown != null
+    LaunchedEffect(showdownActive) {
+        if (!showdownActive) return@LaunchedEffect
+        if (!sfxPolicy.soundEnabled) return@LaunchedEffect
+        sound.play(SfxKind.PotSweep)
+        delay(600L)
+        // 600ms 사이 사용자가 빠져 나갔거나(hand 전환 등) 정책이 꺼졌다면 스킵.
+        if (sfxPolicy.soundEnabled) {
+            sound.play(SfxKind.HandWin)
+        }
+    }
+
     // Guide overlay — Sprint2-G Phase 4 + Sprint3-A DataStore.
     val guideSettings by settingsRepo.guideSettings.collectAsState(initial = GuideSettings.Default)
     var currentGuideStep by remember { mutableStateOf<GuideStep?>(null) }
