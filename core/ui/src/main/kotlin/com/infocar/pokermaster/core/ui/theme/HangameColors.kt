@@ -108,19 +108,9 @@ object HangameColors {
     val BackgroundBrush: Brush
         get() = Brush.verticalGradient(colors = listOf(BgTop, BgMid, BgBottom))
 
-    /** 펠트 라디얼 — 중앙 밝고 가장자리 어둡게. */
-    fun feltBrush(centerOffset: androidx.compose.ui.geometry.Offset, radius: Float): Brush =
-        Brush.radialGradient(
-            colors = listOf(FeltInner, FeltMid, FeltOuter),
-            center = centerOffset,
-            radius = radius,
-        )
-
-    /** 시트 카드 — 활성 여부에 따른 수직 그라데이션. */
-    fun seatBrush(active: Boolean): Brush = Brush.verticalGradient(
-        colors = if (active) listOf(SeatBgActive, SeatBg)
-        else listOf(SeatBg, SeatBgFolded),
-    )
+    /** 펠트 라디얼 — 중앙 밝고 가장자리 어둡게. center/radius 는 호출처 size 기반 자동. */
+    fun feltBrush(): Brush =
+        Brush.radialGradient(colors = listOf(FeltInner, FeltMid, FeltOuter))
 
     /** 액션 버튼 수직 그라데이션 (위 밝, 아래 어둡). */
     fun buttonBrush(top: Color, bottom: Color): Brush =

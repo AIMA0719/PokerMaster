@@ -51,7 +51,7 @@ class GameController(
         }
     }
 
-    /** 모드별 reducer 디스패치. SEVEN_STUD_HI_LO 는 v1.1 후속. */
+    /** 모드별 reducer 디스패치. */
     private fun startHand(
         players: List<PlayerState>,
         prevBtnSeat: Int?,

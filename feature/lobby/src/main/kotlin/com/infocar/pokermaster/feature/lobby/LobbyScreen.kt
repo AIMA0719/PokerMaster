@@ -92,6 +92,7 @@ fun LobbyScreen(
                 WalletHeader(
                     balance = wallet.balanceChips,
                     streak = wallet.streakDays,
+                    lifetime = wallet.totalEarnedLifetime,
                 )
             }
 
@@ -171,7 +172,7 @@ fun LobbyScreen(
 }
 
 @Composable
-private fun WalletHeader(balance: Long, streak: Int) {
+private fun WalletHeader(balance: Long, streak: Int, lifetime: Long) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(12.dp),
@@ -196,6 +197,13 @@ private fun WalletHeader(balance: Long, streak: Int) {
                     fontWeight = FontWeight.Bold,
                     color = HangameColors.TextChip,
                 )
+                if (lifetime > 0L) {
+                    Text(
+                        text = "누적 ${formatChips(lifetime)}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = HangameColors.TextMuted,
+                    )
+                }
             }
             if (streak > 0) {
                 Text(

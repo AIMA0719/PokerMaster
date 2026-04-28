@@ -15,7 +15,6 @@ interface HandHistoryRepository {
     suspend fun record(record: HandHistoryRecord): Long
     suspend fun byId(id: Long): HandHistoryRecord?
     fun observeRecent(limit: Int = DEFAULT_LIMIT): Flow<List<HandHistoryRecord>>
-    fun observeByMode(mode: String, limit: Int = DEFAULT_LIMIT): Flow<List<HandHistoryRecord>>
     suspend fun count(): Int
     suspend fun delete(id: Long)
     suspend fun clear()
@@ -41,9 +40,6 @@ class RoomHandHistoryRepository(
 
     override fun observeRecent(limit: Int): Flow<List<HandHistoryRecord>> =
         dao.observeTop(limit).map { list -> list.mapNotNull { it.toRecordOrNull(json) } }
-
-    override fun observeByMode(mode: String, limit: Int): Flow<List<HandHistoryRecord>> =
-        dao.observeByMode(mode, limit).map { list -> list.mapNotNull { it.toRecordOrNull(json) } }
 
     override suspend fun count(): Int = dao.count()
     override suspend fun delete(id: Long) = dao.deleteById(id)

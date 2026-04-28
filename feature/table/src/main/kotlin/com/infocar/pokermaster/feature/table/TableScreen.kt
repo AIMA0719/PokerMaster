@@ -516,15 +516,7 @@ private fun HangameFelt(modifier: Modifier = Modifier) {
     Box(
         modifier = modifier
             .clip(RoundedCornerShape(180.dp))
-            .background(
-                Brush.radialGradient(
-                    colors = listOf(
-                        HangameColors.FeltInner,
-                        HangameColors.FeltMid,
-                        HangameColors.FeltOuter,
-                    ),
-                ),
-            )
+            .background(HangameColors.feltBrush())
             .border(
                 BorderStroke(2.dp, HangameColors.SeatBorder),
                 RoundedCornerShape(180.dp),

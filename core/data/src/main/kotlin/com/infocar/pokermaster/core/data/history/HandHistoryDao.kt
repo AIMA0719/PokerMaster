@@ -31,9 +31,6 @@ interface HandHistoryDao {
     @Query("SELECT * FROM hand_history ORDER BY started_at DESC LIMIT :limit OFFSET :offset")
     fun observePage(limit: Int, offset: Int): Flow<List<HandHistoryEntity>>
 
-    @Query("SELECT * FROM hand_history WHERE mode = :mode ORDER BY started_at DESC LIMIT :limit")
-    fun observeByMode(mode: String, limit: Int): Flow<List<HandHistoryEntity>>
-
     @Query("SELECT COUNT(*) FROM hand_history")
     suspend fun count(): Int
 

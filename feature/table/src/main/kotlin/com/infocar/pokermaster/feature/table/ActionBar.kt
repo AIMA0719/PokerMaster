@@ -178,8 +178,8 @@ private fun ActionButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val gradient = if (enabled) Brush.verticalGradient(listOf(tint, tintDark))
-    else Brush.verticalGradient(listOf(HangameColors.BtnDisabled, HangameColors.BtnDisabled))
+    val gradient = if (enabled) HangameColors.buttonBrush(tint, tintDark)
+    else HangameColors.buttonBrush(HangameColors.BtnDisabled, HangameColors.BtnDisabled)
 
     // M7-BugFix: 빠른 연타로 같은 액션이 두 번 디스패치되는 것 방어. 350ms throttle.
     // 감사 결과 #2 fix: 기존 mutableLongStateOf 는 non-atomic check-and-set —
