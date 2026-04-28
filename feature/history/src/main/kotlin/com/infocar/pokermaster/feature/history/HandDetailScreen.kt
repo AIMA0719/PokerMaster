@@ -42,6 +42,7 @@ import com.infocar.pokermaster.core.data.history.ActionLogEntry
 import com.infocar.pokermaster.core.data.history.HandHistoryRecord
 import com.infocar.pokermaster.core.model.Card
 import com.infocar.pokermaster.core.ui.theme.HangameColors
+import com.infocar.pokermaster.feature.history.coaching.CoachingTip
 
 /**
  * 핸드 상세 화면 — M5-D. 정적 요약: 헤더 / 초기 홀카드 / 커뮤니티 / 액션 로그 /
@@ -110,6 +111,7 @@ fun HandDetailScreen(
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 item { HeaderCard(record = record) }
+                item { CoachingCard(record = record) }
                 item { CardsCard(record = record) }
                 if (record.actions.isNotEmpty()) {
                     item {
@@ -149,6 +151,25 @@ private fun HeaderCard(record: HandHistoryRecord) {
             style = MaterialTheme.typography.bodySmall,
             color = HangameColors.TextSecondary,
         )
+    }
+}
+
+@Composable
+private fun CoachingCard(record: HandHistoryRecord) {
+    // Phase F: 정적 룰 기반 한 줄 코칭. record 변경 시 1회 계산.
+    val tip = remember(record.id) { CoachingTip.forRecord(record) }
+    SectionCard(title = "💬 코칭") {
+        androidx.compose.foundation.layout.Row(
+            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+            horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(10.dp),
+        ) {
+            Text(text = tip.emoji, style = MaterialTheme.typography.headlineSmall)
+            Text(
+                text = tip.message,
+                style = MaterialTheme.typography.bodyMedium,
+                color = HangameColors.TextPrimary,
+            )
+        }
     }
 }
 
