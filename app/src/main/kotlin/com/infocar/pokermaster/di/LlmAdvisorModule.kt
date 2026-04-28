@@ -2,6 +2,8 @@ package com.infocar.pokermaster.di
 
 import com.infocar.pokermaster.engine.controller.llm.LlmAdvisor
 import com.infocar.pokermaster.engine.controller.llm.LlmAdvisorImpl
+import com.infocar.pokermaster.engine.controller.llm.LlmCoach
+import com.infocar.pokermaster.engine.controller.llm.LlmCoachImpl
 import com.infocar.pokermaster.engine.llm.LlmSession
 import dagger.Module
 import dagger.Provides
@@ -24,6 +26,10 @@ object LlmAdvisorModule {
     @Provides
     @Singleton
     fun provideLlmAdvisor(session: LlmSession): LlmAdvisor = LlmAdvisorImpl(session)
+
+    @Provides
+    @Singleton
+    fun provideLlmCoach(session: LlmSession): LlmCoach = LlmCoachImpl(session)
 }
 
 /**
@@ -43,6 +49,9 @@ object LlmAdvisorModule {
 @InstallIn(SingletonComponent::class)
 interface LlmAdvisorEntryPoint {
     fun llmAdvisor(): LlmAdvisor
+
+    /** sprint C2 Phase 3: 핸드 종료 LLM 코칭 — feature.history 가 ApplicationContext 로 꺼냄. */
+    fun llmCoach(): LlmCoach
 
     fun historyRepo(): com.infocar.pokermaster.core.data.history.HandHistoryRepository
 

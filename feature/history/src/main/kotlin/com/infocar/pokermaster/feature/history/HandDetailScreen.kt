@@ -111,7 +111,7 @@ fun HandDetailScreen(
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 item { HeaderCard(record = record) }
-                item { CoachingCard(record = record) }
+                item { CoachingCard(record = record, llmTip = state.coachTipFromLlm) }
                 item { CardsCard(record = record) }
                 if (record.actions.isNotEmpty()) {
                     item {
@@ -155,17 +155,20 @@ private fun HeaderCard(record: HandHistoryRecord) {
 }
 
 @Composable
-private fun CoachingCard(record: HandHistoryRecord) {
-    // Phase F: 정적 룰 기반 한 줄 코칭. record 변경 시 1회 계산.
-    val tip = remember(record.id) { CoachingTip.forRecord(record) }
-    SectionCard(title = "💬 코칭") {
+private fun CoachingCard(record: HandHistoryRecord, llmTip: String?) {
+    // sprint C2 Phase 3: LLM tip 우선, null 이면 정적 룰 베이스 폴백.
+    val staticTip = remember(record.id) { CoachingTip.forRecord(record) }
+    val message = llmTip ?: staticTip.message
+    val emoji = if (llmTip != null) "🤖" else staticTip.emoji
+    val title = if (llmTip != null) "💬 코칭 (AI)" else "💬 코칭"
+    SectionCard(title = title) {
         androidx.compose.foundation.layout.Row(
             verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
             horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(10.dp),
         ) {
-            Text(text = tip.emoji, style = MaterialTheme.typography.headlineSmall)
+            Text(text = emoji, style = MaterialTheme.typography.headlineSmall)
             Text(
-                text = tip.message,
+                text = message,
                 style = MaterialTheme.typography.bodyMedium,
                 color = HangameColors.TextPrimary,
             )
