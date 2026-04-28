@@ -1,9 +1,12 @@
 package com.infocar.pokermaster.feature.lobby
 
 import androidx.annotation.StringRes
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -34,9 +37,11 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveable
+import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -118,21 +123,33 @@ fun LobbyScreen(
                 )
                 Spacer(Modifier.height(12.dp))
 
-                GameMode.entries.forEach { mode ->
+                GameMode.entries.forEachIndexed { index, mode ->
                     // 본인 buy-in = wallet 잔고 전체. wallet > 0 면 진입 가능.
                     val hasChips = wallet.balanceChips > 0L
                     val supported = true // 모든 GameMode 정식 지원 (HOLDEM_NL / SEVEN_STUD / SEVEN_STUD_HI_LO)
-                    ModeCard(
-                        mode = mode,
-                        enabled = hasChips && supported,
-                        reasonIfDisabled = when {
-                            !supported -> "준비 중 (다음 업데이트)"
-                            !hasChips -> "잔고 부족 — 보너스 받고 다시 시도하세요."
-                            else -> null
-                        },
-                        // 본인 buy-in = wallet 잔고 전체. NPC 는 ViewModel 에서 5만 fixed.
-                        onClick = { onSelectMode(mode, selectedSeats, wallet.balanceChips) },
-                    )
+                    // Phase6: 진입 시 staggered enter (index * 80ms delay) — cinematic 첫 등장.
+                    var visible by remember { mutableStateOf(false) }
+                    LaunchedEffect(Unit) {
+                        delay(index * 80L)
+                        visible = true
+                    }
+                    AnimatedVisibility(
+                        visible = visible,
+                        enter = fadeIn(tween(420)) +
+                            slideInVertically(tween(420, easing = FastOutSlowInEasing)) { full -> full / 3 },
+                    ) {
+                        ModeCard(
+                            mode = mode,
+                            enabled = hasChips && supported,
+                            reasonIfDisabled = when {
+                                !supported -> "준비 중 (다음 업데이트)"
+                                !hasChips -> "잔고 부족 — 보너스 받고 다시 시도하세요."
+                                else -> null
+                            },
+                            // 본인 buy-in = wallet 잔고 전체. NPC 는 ViewModel 에서 5만 fixed.
+                            onClick = { onSelectMode(mode, selectedSeats, wallet.balanceChips) },
+                        )
+                    }
                     Spacer(Modifier.height(12.dp))
                 }
 
