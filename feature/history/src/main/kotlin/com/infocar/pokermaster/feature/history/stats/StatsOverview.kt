@@ -24,8 +24,13 @@ data class StatsOverview(
     val vpip: Double,      // 0.0 ~ 1.0
     val pfr: Double,       // 0.0 ~ 1.0
     val byMode: Map<String, ModeStats>,
+    /** Phase D: 최근 핸드 시간 순 rolling-N winrate (0~1). 최대 [TREND_MAX_POINTS] 개. */
+    val winrateTrend: List<Double> = emptyList(),
 ) {
     companion object {
+        const val TREND_WINDOW: Int = 5
+        const val TREND_MAX_POINTS: Int = 30
+
         val EMPTY = StatsOverview(
             totalHands = 0,
             handsWon = 0,
@@ -35,6 +40,7 @@ data class StatsOverview(
             vpip = 0.0,
             pfr = 0.0,
             byMode = emptyMap(),
+            winrateTrend = emptyList(),
         )
     }
 }
@@ -124,7 +130,29 @@ object StatsCalculator {
                     pfr = if (v.hands > 0) v.pfrHands.toDouble() / v.hands else 0.0,
                 )
             },
+            winrateTrend = computeWinrateTrend(records),
         )
+    }
+
+    /**
+     * Phase D: 최근 [StatsOverview.TREND_MAX_POINTS] 핸드 시간 순서 rolling-N winrate.
+     * records 는 보통 DESC (최신부터) 라 startedAt 으로 ASC 정렬 후 sliding window.
+     */
+    private fun computeWinrateTrend(records: List<HandHistoryRecord>): List<Double> {
+        if (records.size < 2) return emptyList()
+        val sorted = records
+            .sortedBy { it.startedAt }
+            .takeLast(StatsOverview.TREND_MAX_POINTS)
+        val window = StatsOverview.TREND_WINDOW
+        return sorted.indices.map { i ->
+            val start = (i - window + 1).coerceAtLeast(0)
+            val slice = sorted.subList(start, i + 1)
+            val won = slice.count { r ->
+                val human = r.initialState.players.firstOrNull { it.isHuman }?.seat
+                human != null && r.winnerSeat == human
+            }
+            won.toDouble() / slice.size
+        }
     }
 
     /**

@@ -1,5 +1,6 @@
 package com.infocar.pokermaster.feature.history.stats
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -7,6 +8,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
@@ -29,7 +31,11 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -103,6 +109,9 @@ fun StatsScreen(
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 SummaryCard(overview = o)
+                if (o.winrateTrend.size >= 2) {
+                    TrendlineCard(trend = o.winrateTrend)
+                }
                 ModeBreakdownCard(overview = o)
             }
         }
@@ -124,6 +133,64 @@ private fun SummaryCard(overview: StatsOverview) {
         MetricRow("최대 팟 (칩)", formatChips(overview.biggestPot), chip = true)
         MetricRow("VPIP", formatPercent(overview.vpip), accent = true)
         MetricRow("PFR", formatPercent(overview.pfr), accent = true)
+    }
+}
+
+/**
+ * Phase D: 최근 N 핸드 rolling-5 winrate 추세 라인. Compose Canvas 1줄 + 50% 기준선.
+ * 좌→우 = 시간 순서 (오래된 → 최근). 0~1 정규화 후 라임 line.
+ */
+@Composable
+private fun TrendlineCard(trend: List<Double>) {
+    SectionCard("최근 ${trend.size} 핸드 승률 추세") {
+        Text(
+            "rolling-${StatsOverview.TREND_WINDOW} 윈도우. 50% 기준선.",
+            style = MaterialTheme.typography.labelSmall,
+            color = HangameColors.TextMuted,
+        )
+        Canvas(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(96.dp),
+        ) {
+            val w = size.width
+            val h = size.height
+            // 50% 기준 dashed line.
+            drawLine(
+                color = HangameColors.TextMuted.copy(alpha = 0.5f),
+                start = Offset(0f, h * 0.5f),
+                end = Offset(w, h * 0.5f),
+                strokeWidth = 1.5f,
+                pathEffect = PathEffect.dashPathEffect(floatArrayOf(8f, 6f)),
+            )
+            val path = Path().apply {
+                trend.forEachIndexed { i, v ->
+                    val x = if (trend.size == 1) 0f else (i.toFloat() / (trend.size - 1)) * w
+                    val y = h - (v.toFloat() * h)
+                    if (i == 0) moveTo(x, y) else lineTo(x, y)
+                }
+            }
+            drawPath(
+                path = path,
+                color = HangameColors.TextLime,
+                style = Stroke(width = 3f),
+            )
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Text(
+                "오래된 →",
+                style = MaterialTheme.typography.labelSmall,
+                color = HangameColors.TextMuted,
+            )
+            Text(
+                "← 최근",
+                style = MaterialTheme.typography.labelSmall,
+                color = HangameColors.TextMuted,
+            )
+        }
     }
 }
 
