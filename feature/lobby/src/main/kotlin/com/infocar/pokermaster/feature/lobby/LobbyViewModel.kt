@@ -3,6 +3,7 @@ package com.infocar.pokermaster.feature.lobby
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.infocar.pokermaster.core.data.history.HandHistoryRepository
+import com.infocar.pokermaster.core.data.profile.NicknameRepository
 import com.infocar.pokermaster.core.data.wallet.CheckInResult
 import com.infocar.pokermaster.core.data.wallet.WalletRepository
 import com.infocar.pokermaster.core.data.wallet.WalletState
@@ -25,7 +26,19 @@ class LobbyViewModel @Inject constructor(
     private val walletRepo: WalletRepository,
     private val historyRepo: HandHistoryRepository,
     private val missionRepo: MissionRepository,
+    private val nicknameRepo: NicknameRepository,
 ) : ViewModel() {
+
+    val nickname: StateFlow<String> = nicknameRepo.nickname
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5_000),
+            initialValue = nicknameRepo.current(),
+        )
+
+    fun setNickname(name: String) {
+        nicknameRepo.set(name)
+    }
 
     val wallet: StateFlow<WalletState> = walletRepo.observe()
         .stateIn(

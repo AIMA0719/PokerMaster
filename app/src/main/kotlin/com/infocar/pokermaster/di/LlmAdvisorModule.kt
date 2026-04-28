@@ -49,6 +49,9 @@ interface LlmAdvisorEntryPoint {
     /** M6-C: 테이블 buy-in / settle 을 위한 wallet. */
     fun walletRepo(): com.infocar.pokermaster.core.data.wallet.WalletRepository
 
+    /** 사용자 닉네임 (기본 "나") — table 진입 시 humanNickname 인자로 전달. */
+    fun nicknameRepo(): com.infocar.pokermaster.core.data.profile.NicknameRepository
+
     @AppScope
     fun appScope(): kotlinx.coroutines.CoroutineScope
 }

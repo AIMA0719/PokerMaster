@@ -220,6 +220,7 @@ fun AppNav() {
                 mode = mode,
                 seats = seats,
                 humanBuyIn = buyIn,
+                humanNickname = entry.nicknameRepo().current(),
                 onExit = {
                     nav.navigate(Routes.LOBBY) {
                         popUpTo(Routes.LOBBY) { inclusive = true }

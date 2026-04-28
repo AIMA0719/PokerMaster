@@ -109,6 +109,8 @@ fun TableScreen(
     seats: Int = 2,
     /** 본인 buy-in. 0 이면 default(TABLE_STAKE) 적용. wallet 잔고 전체 권장. */
     humanBuyIn: Long = 0L,
+    /** 본인 좌석 닉네임. 기본 "나" — Lobby 의 NicknameRepository 에서 주입. */
+    humanNickname: String = "나",
     /** Phase5-II-B: LLM advisor. null 이면 DecisionCore-only 경로. */
     llmAdvisor: LlmAdvisor? = null,
     /** M5-B: 핸드 히스토리 Repository + Application scope. null 이면 저장 생략. */
@@ -118,11 +120,12 @@ fun TableScreen(
     walletRepo: WalletRepository? = null,
     viewModel: TableViewModel = run {
         val ctx = LocalContext.current.applicationContext
-        remember(mode, seats, humanBuyIn, llmAdvisor, historyRepo, historyScope, walletRepo) {
+        remember(mode, seats, humanBuyIn, humanNickname, llmAdvisor, historyRepo, historyScope, walletRepo) {
             TableViewModel.createDefault(
                 context = ctx,
                 mode = mode,
                 seats = seats,
+                humanNickname = humanNickname,
                 humanBuyIn = humanBuyIn,
                 llmAdvisor = llmAdvisor,
                 historyRepo = historyRepo,

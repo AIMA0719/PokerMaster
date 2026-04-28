@@ -8,6 +8,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -32,6 +33,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -55,6 +57,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.infocar.pokermaster.core.ui.theme.HangameColors
+import com.infocar.pokermaster.core.data.profile.NicknameRepository
 import com.infocar.pokermaster.core.data.wallet.WalletRepository
 import com.infocar.pokermaster.core.model.GameMode
 
@@ -69,7 +72,9 @@ fun LobbyScreen(
     val wallet by viewModel.wallet.collectAsState()
     val event by viewModel.events.collectAsState()
     val mission by viewModel.mission.collectAsState()
+    val nickname by viewModel.nickname.collectAsState()
     var selectedSeats by rememberSaveable { mutableIntStateOf(2) }
+    var showNicknameDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) { viewModel.onEntered() }
 
@@ -104,7 +109,12 @@ fun LobbyScreen(
                     style = MaterialTheme.typography.bodyLarge,
                     color = HangameColors.TextSecondary,
                 )
-                Spacer(Modifier.height(24.dp))
+                Spacer(Modifier.height(8.dp))
+                NicknameRow(
+                    nickname = nickname,
+                    onClick = { showNicknameDialog = true },
+                )
+                Spacer(Modifier.height(16.dp))
                 WalletHeader(
                     balance = wallet.balanceChips,
                     streak = wallet.streakDays,
@@ -180,6 +190,14 @@ fun LobbyScreen(
                 Spacer(Modifier.height(16.dp))
             }
         }
+    }
+
+    if (showNicknameDialog) {
+        NicknameEditDialog(
+            current = nickname,
+            onConfirm = { viewModel.setNickname(it) },
+            onDismiss = { showNicknameDialog = false },
+        )
     }
 
     // M6-C: Daily bonus / 파산 모달. M7: silent fail 대신 Toast 노출.
@@ -289,6 +307,70 @@ private fun StreakDots(streak: Int) {
             Text(text = "★", color = HangameColors.PotValue, fontWeight = FontWeight.Black)
         }
     }
+}
+
+@Composable
+private fun NicknameRow(nickname: String, onClick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .clickable(onClick = onClick)
+            .padding(vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Text(
+            text = "안녕,",
+            style = MaterialTheme.typography.bodyLarge,
+            color = HangameColors.TextSecondary,
+        )
+        Text(
+            text = nickname,
+            style = MaterialTheme.typography.bodyLarge,
+            color = HangameColors.TextLime,
+            fontWeight = FontWeight.SemiBold,
+        )
+        Text(text = "✏️", style = MaterialTheme.typography.bodyMedium)
+    }
+}
+
+@Composable
+private fun NicknameEditDialog(
+    current: String,
+    onConfirm: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var input by androidx.compose.runtime.remember(current) {
+        androidx.compose.runtime.mutableStateOf(current)
+    }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("닉네임 변경") },
+        text = {
+            Column {
+                OutlinedTextField(
+                    value = input,
+                    onValueChange = { input = it.take(NicknameRepository.MAX_LENGTH) },
+                    singleLine = true,
+                    label = { Text("닉네임 (최대 ${NicknameRepository.MAX_LENGTH}자)") },
+                )
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    text = "비워두거나 기존과 같으면 변경되지 않습니다.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = HangameColors.TextMuted,
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = { onConfirm(input); onDismiss() },
+                enabled = input.trim().isNotBlank() && input.trim() != current,
+            ) { Text("변경") }
+        },
+        dismissButton = {
+            OutlinedButton(onClick = onDismiss) { Text("취소") }
+        },
+    )
 }
 
 /**
