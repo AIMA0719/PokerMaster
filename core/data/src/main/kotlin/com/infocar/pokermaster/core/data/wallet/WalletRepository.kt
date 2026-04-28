@@ -42,6 +42,12 @@ interface WalletRepository {
      */
     suspend fun recordCheckIn(today: LocalDate): CheckInResult
 
+    /**
+     * 일일 미션 보상 적립. balance + totalEarnedLifetime 가산. 중복 방지는 호출자
+     * (MissionRepository) 에서 처리.
+     */
+    suspend fun claimMissionReward(amount: Long)
+
     companion object {
         /** 신규 사용자 / 파산 리셋 시 지급 칩. */
         const val STARTING_BANKROLL: Long = 50_000L
@@ -106,6 +112,16 @@ class RoomWalletRepository(
         val next = current.copy(
             balanceChips = current.balanceChips + credited,
             totalEarnedLifetime = current.totalEarnedLifetime + credited,
+        )
+        dao.upsert(next)
+    }
+
+    override suspend fun claimMissionReward(amount: Long) {
+        if (amount <= 0L) return
+        val current = currentOrSeeded()
+        val next = current.copy(
+            balanceChips = current.balanceChips + amount,
+            totalEarnedLifetime = current.totalEarnedLifetime + amount,
         )
         dao.upsert(next)
     }

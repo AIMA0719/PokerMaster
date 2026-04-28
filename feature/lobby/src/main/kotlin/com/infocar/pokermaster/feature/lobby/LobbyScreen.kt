@@ -29,6 +29,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
@@ -67,6 +68,7 @@ fun LobbyScreen(
 ) {
     val wallet by viewModel.wallet.collectAsState()
     val event by viewModel.events.collectAsState()
+    val mission by viewModel.mission.collectAsState()
     var selectedSeats by rememberSaveable { mutableIntStateOf(2) }
 
     LaunchedEffect(Unit) { viewModel.onEntered() }
@@ -124,6 +126,10 @@ fun LobbyScreen(
                     selected = selectedSeats,
                     onSelect = { selectedSeats = it },
                 )
+                Spacer(Modifier.height(12.dp))
+
+                // 잔여9-도전과제: 일일 미션 카드. 5핸드 플레이 → 1k 보상, 일 1회.
+                MissionCard(state = mission, onClaim = viewModel::claimMissionReward)
                 Spacer(Modifier.height(12.dp))
 
                 GameMode.entries.forEachIndexed { index, mode ->
@@ -281,6 +287,76 @@ private fun StreakDots(streak: Int) {
         if (streak >= 7) {
             Spacer(Modifier.size(3.dp))
             Text(text = "★", color = HangameColors.PotValue, fontWeight = FontWeight.Black)
+        }
+    }
+}
+
+/**
+ * 잔여9-도전과제: 일일 미션 카드. progress bar + 보상 수령 버튼.
+ * canClaim 시만 버튼 활성, claimed=true 면 "수령 완료" 표시, 진행 중이면 보상 텍스트만.
+ */
+@Composable
+private fun MissionCard(state: MissionState, onClaim: () -> Unit) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp),
+        color = HangameColors.SeatBg,
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = "🎯 일일 미션",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Black,
+                    color = HangameColors.TextPrimary,
+                )
+                Text(
+                    text = "보상 ${formatChips(state.rewardAmount)}",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = HangameColors.PotValue,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
+            Text(
+                text = "오늘 ${state.targetHands}핸드 플레이 (${state.todayHands.coerceAtMost(state.targetHands)}/${state.targetHands})",
+                style = MaterialTheme.typography.bodyMedium,
+                color = HangameColors.TextSecondary,
+            )
+            LinearProgressIndicator(
+                progress = { state.progress },
+                modifier = Modifier.fillMaxWidth().height(6.dp),
+                color = HangameColors.TextLime,
+                trackColor = HangameColors.SeatBgFolded,
+            )
+            when {
+                state.canClaim -> {
+                    Button(
+                        onClick = onClaim,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text("보상 받기 🎁") }
+                }
+                state.claimed -> {
+                    Text(
+                        text = "✅ 오늘 보상 수령 완료 — 내일 다시 진행됩니다.",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = HangameColors.TextLime,
+                    )
+                }
+                else -> {
+                    Text(
+                        text = "${state.targetHands - state.todayHands}핸드 더 플레이하면 보상이 활성화됩니다.",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = HangameColors.TextMuted,
+                    )
+                }
+            }
         }
     }
 }

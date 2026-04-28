@@ -2,6 +2,7 @@ package com.infocar.pokermaster.feature.lobby
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.infocar.pokermaster.core.data.history.HandHistoryRepository
 import com.infocar.pokermaster.core.data.wallet.CheckInResult
 import com.infocar.pokermaster.core.data.wallet.WalletRepository
 import com.infocar.pokermaster.core.data.wallet.WalletState
@@ -13,6 +14,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.time.LocalDate
+import java.time.ZoneId
 import javax.inject.Inject
 
 /**
@@ -21,6 +23,8 @@ import javax.inject.Inject
 @HiltViewModel
 class LobbyViewModel @Inject constructor(
     private val walletRepo: WalletRepository,
+    private val historyRepo: HandHistoryRepository,
+    private val missionRepo: MissionRepository,
 ) : ViewModel() {
 
     val wallet: StateFlow<WalletState> = walletRepo.observe()
@@ -37,6 +41,10 @@ class LobbyViewModel @Inject constructor(
 
     private val _events = MutableStateFlow<LobbyEvent?>(null)
     val events: StateFlow<LobbyEvent?> = _events.asStateFlow()
+
+    /** 잔여9-도전과제: 일일 미션 상태. onEntered + claim 시 갱신. */
+    private val _mission = MutableStateFlow(MissionState())
+    val mission: StateFlow<MissionState> = _mission.asStateFlow()
 
     /**
      * 화면 최초 진입 시 1회 호출 (hilt VM 기본 스코프) — daily check-in + 파산 감지.
@@ -63,6 +71,30 @@ class LobbyViewModel @Inject constructor(
         if (state.balanceChips == 0L) {
             _events.value = LobbyEvent.Bankrupt(state.balanceChips)
         }
+        // 일일 미션 상태 갱신 (오늘 시작된 핸드 카운트 + 수령 여부).
+        refreshMission()
+    }
+
+    /** 미션 상태 재조회. claim 직후 / lobby onEntered 에서 호출. */
+    private fun refreshMission() = viewModelScope.launch {
+        val today = LocalDate.now()
+        val sinceMs = today.atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
+        val handsToday = runCatching { historyRepo.countSince(sinceMs) }.getOrNull() ?: 0
+        val claimed = missionRepo.lastClaimedEpochDay() == today.toEpochDay()
+        _mission.value = MissionState(todayHands = handsToday, claimed = claimed)
+    }
+
+    fun claimMissionReward() = viewModelScope.launch {
+        val current = _mission.value
+        if (!current.canClaim) return@launch
+        runCatching {
+            walletRepo.claimMissionReward(current.rewardAmount)
+            missionRepo.saveClaimed(LocalDate.now().toEpochDay())
+        }.onFailure {
+            android.util.Log.w("LobbyVM", "mission claim failed", it)
+            _events.value = LobbyEvent.Error("보상 적립에 실패했어요.")
+        }
+        refreshMission()
     }
 
     fun onResetBankrupt() = viewModelScope.launch {
@@ -87,4 +119,26 @@ sealed interface LobbyEvent {
     data class Bankrupt(val currentBalance: Long) : LobbyEvent
     /** silent fail 대신 사용자에게 짧게 토스트로 알려주는 전이형 메시지. dismissEvent() 로 소거. */
     data class Error(val message: String) : LobbyEvent
+}
+
+/**
+ * 일일 미션 상태. v1: "오늘 5핸드 플레이" 단일 미션, 보상 1k chips, 일 1회.
+ * 향후 미션 풀 확장 시 sealed class 또는 List<Mission> 으로 전환.
+ */
+data class MissionState(
+    val todayHands: Int = 0,
+    val targetHands: Int = TARGET_HANDS,
+    val rewardAmount: Long = REWARD_CHIPS,
+    val claimed: Boolean = false,
+) {
+    val progress: Float
+        get() = (todayHands.toFloat() / targetHands).coerceAtMost(1f)
+    val canClaim: Boolean
+        get() = todayHands >= targetHands && !claimed
+
+    companion object {
+        /** v1 단일 미션 임계치 — 사용자 결정에 따라 조정. */
+        const val TARGET_HANDS: Int = 5
+        const val REWARD_CHIPS: Long = 1_000L
+    }
 }

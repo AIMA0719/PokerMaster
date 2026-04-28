@@ -34,6 +34,10 @@ interface HandHistoryDao {
     @Query("SELECT COUNT(*) FROM hand_history")
     suspend fun count(): Int
 
+    /** [sinceEpochMs] 이후 시작된 핸드 수. 일일 미션 진행률 계산용. */
+    @Query("SELECT COUNT(*) FROM hand_history WHERE started_at >= :sinceEpochMs")
+    suspend fun countSince(sinceEpochMs: Long): Int
+
     @Query("DELETE FROM hand_history WHERE id = :id")
     suspend fun deleteById(id: Long)
 
