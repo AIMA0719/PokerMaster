@@ -71,7 +71,7 @@ fun ActionBar(
     }
 
     val primaryActionType = if (state.canCall) ActionType.CALL else ActionType.CHECK
-    val primaryEnabled = state.canCall || state.canCheck
+    val primaryEnabled = state.actionsEnabled && (state.canCall || state.canCheck)
     val primaryLabel = when {
         state.canCall -> "콜 ${formatActionAmount(state.callAmount)}"
         else -> "체크"
@@ -91,7 +91,7 @@ fun ActionBar(
             label = "다이",
             tint = HangameColors.BtnFold,
             tintDark = HangameColors.BtnFoldDark,
-            enabled = true,
+            enabled = state.actionsEnabled,
             a11y = A11yStrings.actionButton(ActionType.FOLD),
             onClick = { onAction(Action(ActionType.FOLD)) },
             modifier = Modifier.weight(1.05f),
@@ -111,7 +111,7 @@ fun ActionBar(
                 label = "구사",
                 tint = HangameColors.BtnSaveLife,
                 tintDark = HangameColors.BtnSaveLifeDark,
-                enabled = true,
+                enabled = state.actionsEnabled,
                 a11y = "구사 (한국식 7스터드)",
                 onClick = { onAction(Action(ActionType.SAVE_LIFE)) },
                 modifier = Modifier.weight(1f),
@@ -121,7 +121,7 @@ fun ActionBar(
             label = "¼ ${formatActionAmount(quarterAmount)}",
             tint = HangameColors.BtnQuarter,
             tintDark = HangameColors.BtnQuarterDark,
-            enabled = state.canRaise && quarterAmount in state.minRaiseTotal..state.maxRaiseTotal,
+            enabled = state.actionsEnabled && state.canRaise && quarterAmount in state.minRaiseTotal..state.maxRaiseTotal,
             a11y = A11yStrings.actionButton(ActionType.RAISE, amount = quarterAmount),
             onClick = { dispatchRaise(quarterAmount) },
             modifier = Modifier.weight(1f),
@@ -130,7 +130,7 @@ fun ActionBar(
             label = "½ ${formatActionAmount(halfAmount)}",
             tint = HangameColors.BtnHalf,
             tintDark = HangameColors.BtnHalfDark,
-            enabled = state.canRaise && halfAmount in state.minRaiseTotal..state.maxRaiseTotal,
+            enabled = state.actionsEnabled && state.canRaise && halfAmount in state.minRaiseTotal..state.maxRaiseTotal,
             a11y = A11yStrings.actionButton(ActionType.RAISE, amount = halfAmount),
             onClick = { dispatchRaise(halfAmount) },
             modifier = Modifier.weight(1f),
@@ -139,7 +139,7 @@ fun ActionBar(
             label = "팟 ${formatActionAmount(potAmount)}",
             tint = HangameColors.BtnQuarter,
             tintDark = HangameColors.BtnQuarterDark,
-            enabled = state.canRaise && potAmount in state.minRaiseTotal..state.maxRaiseTotal,
+            enabled = state.actionsEnabled && state.canRaise && potAmount in state.minRaiseTotal..state.maxRaiseTotal,
             a11y = A11yStrings.actionButton(ActionType.RAISE, amount = potAmount),
             onClick = { dispatchRaise(potAmount) },
             modifier = Modifier.weight(1f),
@@ -148,7 +148,7 @@ fun ActionBar(
             label = "올인 ${formatActionAmount(allInAmount)}",
             tint = HangameColors.BtnAllIn,
             tintDark = HangameColors.BtnAllInDark,
-            enabled = state.canRaise,
+            enabled = state.actionsEnabled && state.canRaise,
             a11y = A11yStrings.actionButton(ActionType.ALL_IN, amount = allInAmount),
             onClick = { onRequestConfirm(ActionType.ALL_IN, allInAmount) },
             modifier = Modifier.weight(1.15f),

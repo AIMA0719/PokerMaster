@@ -22,6 +22,8 @@ typealias SeatContent = @Composable (PlayerState) -> Unit
 
 /** 액션바 — 사람 차례 전용. (Agent B) */
 interface ActionBarState {
+    /** 실제 액션 입력 가능 여부. 상대 턴에는 UI 자리는 유지하되 버튼은 비활성화한다. */
+    val actionsEnabled: Boolean get() = true
     val canCheck: Boolean
     val canCall: Boolean
     val callAmount: Long
@@ -73,12 +75,14 @@ object TableUiMapper {
 
     fun mapActionBar(state: GameState, humanSeat: Int): ActionBarState? {
         if (state.pendingShowdown != null) return null
-        if (state.toActSeat != humanSeat) return null
         val me = state.players.firstOrNull { it.seat == humanSeat } ?: return null
+        val isHumanTurn = state.toActSeat == humanSeat
 
         if (state.street == Street.DECLARE) {
+            if (!isHumanTurn) return null
             if (!me.alive) return null
             return object : ActionBarState {
+                override val actionsEnabled = true
                 override val canCheck = false
                 override val canCall = false
                 override val callAmount = 0L
@@ -100,6 +104,7 @@ object TableUiMapper {
         val isStud = state.mode == GameMode.SEVEN_STUD || state.mode == GameMode.SEVEN_STUD_HI_LO
         val mayRaise = state.reopenAction || !me.actedThisStreet
         return object : ActionBarState {
+            override val actionsEnabled = isHumanTurn
             override val canCheck = toCall == 0L
             override val canCall = toCall > 0L
             override val callAmount = toCall.coerceAtMost(me.chips)

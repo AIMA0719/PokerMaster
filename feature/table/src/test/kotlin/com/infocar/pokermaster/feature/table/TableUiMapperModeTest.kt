@@ -38,8 +38,32 @@ class TableUiMapperModeTest {
         assertThat(actionBar.callAmount).isEqualTo(25L)
         assertThat(actionBar.canCheck).isFalse()
         assertThat(actionBar.canRaise).isTrue()
+        assertThat(actionBar.actionsEnabled).isTrue()
         assertThat(actionBar.canSaveLife).isFalse()
         assertThat(actionBar.isDeclarePhase).isFalse()
+    }
+
+    @Test
+    fun opponentTurnStillKeepsHumanActionBarVisibleButDisabled() {
+        val state = state(
+            mode = GameMode.HOLDEM_NL,
+            street = Street.FLOP,
+            players = listOf(
+                player(0, isHuman = true, chips = 9_950L),
+                player(1, chips = 9_950L),
+            ),
+            toActSeat = 1,
+            betToCall = 0L,
+            minRaise = 50L,
+        )
+
+        val actionBar = TableUiMapper.mapActionBar(state, humanSeat = 0)
+
+        assertThat(actionBar).isNotNull()
+        assertThat(actionBar!!.actionsEnabled).isFalse()
+        assertThat(actionBar.canCheck).isTrue()
+        assertThat(actionBar.canCall).isFalse()
+        assertThat(actionBar.canRaise).isTrue()
     }
 
     @Test
@@ -62,6 +86,7 @@ class TableUiMapperModeTest {
         assertThat(actionBar).isNotNull()
         assertThat(actionBar!!.canCall).isTrue()
         assertThat(actionBar.callAmount).isEqualTo(25L)
+        assertThat(actionBar.actionsEnabled).isTrue()
         assertThat(actionBar.canSaveLife).isTrue()
         assertThat(actionBar.isDeclarePhase).isFalse()
     }

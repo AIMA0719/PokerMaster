@@ -456,26 +456,17 @@ internal fun TableContent(
                 isShowdown = isShowdown,
                 winnerSeats = winnerSeats,
                 lastActions = lastActions,
-                centerContent = {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        CenterPotDisplay(pot = TableUiMapper.totalPot(state))
-                        // 7스터드는 커뮤니티 카드 없음 — community row 대신 스트릿 표기.
-                        if (state.mode == GameMode.SEVEN_STUD || state.mode == GameMode.SEVEN_STUD_HI_LO) {
-                            StreetLabel(state.street)
-                        } else {
-                            CardCommunityRow(community = state.community)
-                        }
-                        // 정산 표시는 시트 우측 PayoutBadge (펄스 골드) 로 충분 —
-                        // 가운데 영역 좁아 추가 텍스트는 짤림.
-                    }
-                },
+                centerContent = {},
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(horizontal = 48.dp)
                     .padding(top = 8.dp, bottom = 124.dp),
+            )
+            TableCenterContent(
+                state = state,
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .padding(horizontal = 24.dp),
             )
 
             // 4) 우상단 헤더 — 블라인드 정보 + 햄버거 메뉴 + 나가기 (좌상단 제거).
@@ -821,6 +812,34 @@ private fun buildStudSeatBadges(state: GameState): Map<Int, String> {
         Street.THIRD -> state.lastAggressorSeat?.let { mapOf(it to "브링인") } ?: emptyMap()
         Street.FOURTH -> StudReducer.openPairsOnFourthStreet(state).mapValues { "오픈 페어" }
         else -> emptyMap()
+    }
+}
+
+@Composable
+private fun TableCenterContent(state: GameState, modifier: Modifier = Modifier) {
+    val isStud = state.mode == GameMode.SEVEN_STUD || state.mode == GameMode.SEVEN_STUD_HI_LO
+    if (isStud) {
+        Row(
+            modifier = modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            CenterPotDisplay(
+                pot = TableUiMapper.totalPot(state),
+                modifier = Modifier.widthIn(max = 150.dp),
+            )
+            Spacer(Modifier.width(10.dp))
+            StreetLabel(state.street)
+        }
+    } else {
+        Column(
+            modifier = modifier,
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            CenterPotDisplay(pot = TableUiMapper.totalPot(state))
+            CardCommunityRow(community = state.community)
+        }
     }
 }
 

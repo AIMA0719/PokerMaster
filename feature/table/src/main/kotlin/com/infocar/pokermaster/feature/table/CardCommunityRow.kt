@@ -17,6 +17,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import com.infocar.pokermaster.core.model.Card
@@ -38,16 +39,18 @@ import com.infocar.pokermaster.feature.table.anim.cardEntrance
 fun CardCommunityRow(
     community: List<Card>,
     modifier: Modifier = Modifier,
+    cardWidth: Dp = 52.dp,
+    cardHeight: Dp = 74.dp,
 ) {
     Row(
         modifier = modifier,
-        horizontalArrangement = Arrangement.spacedBy(3.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         for (i in 0 until 5) {
             val card = community.getOrNull(i)
             if (card == null) {
-                PlayingCard(card = null, faceDown = false, width = 32.dp, height = 46.dp)
+                PlayingCard(card = null, faceDown = false, width = cardWidth, height = cardHeight)
             } else {
                 val duration = when {
                     i < 3 -> DealAnimationSpec.FLOP_CARD_DURATION_MS
@@ -73,8 +76,8 @@ fun CardCommunityRow(
                     PlayingCard(
                         card = card,
                         faceDown = false,
-                        width = 32.dp,
-                        height = 46.dp,
+                        width = cardWidth,
+                        height = cardHeight,
                         modifier = Modifier.cardEntrance(durationMs = duration, delayMs = delay, key = card),
                     )
                 }
