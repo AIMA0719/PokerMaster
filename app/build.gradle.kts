@@ -65,6 +65,10 @@ android {
             isDebuggable = true
             applicationIdSuffix = ".debug"
             versionNameSuffix = "-debug"
+            // E2 실기 우회: debug 에서 SHA-256 mismatch 를 Valid 로 흡수.
+            // 사용자가 사이드로딩한 GGUF / PAD 에서 추출한 다른 빌드 모델로도
+            // Lobby 진입 가능. release 는 false 유지 — 운영 무결성 보장.
+            buildConfigField("Boolean", "SKIP_MODEL_HASH_VERIFICATION", "true")
         }
         release {
             isMinifyEnabled = true
@@ -73,6 +77,7 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
             )
+            buildConfigField("Boolean", "SKIP_MODEL_HASH_VERIFICATION", "false")
         }
     }
 

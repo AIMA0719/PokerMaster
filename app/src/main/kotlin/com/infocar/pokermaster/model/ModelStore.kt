@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.SharedPreferences
 import android.content.res.AssetManager
 import android.util.Log
+import com.infocar.pokermaster.BuildConfig
 import com.infocar.pokermaster.core.model.ModelEntry
 import java.io.File
 import java.io.FileOutputStream
@@ -38,7 +39,17 @@ class ModelStore(private val context: Context) {
         if (!f.isFile) return VerifyResult.Missing
         val actualSize = f.length()
         if (actualSize != entry.sizeBytes) {
+            // E2 실기 우회: debug 빌드는 size mismatch 도 흡수 (사이드로딩한 quant 차이 포함).
+            if (BuildConfig.SKIP_MODEL_HASH_VERIFICATION) {
+                Log.w(TAG, "size mismatch ignored (debug skip): expected=${entry.sizeBytes} actual=$actualSize")
+                return VerifyResult.Valid
+            }
             return VerifyResult.SizeMismatch(expected = entry.sizeBytes, actual = actualSize)
+        }
+        // E2: debug 면 SHA 계산도 skip — 캐시 hit 와 동일 효과로 즉시 Valid.
+        if (BuildConfig.SKIP_MODEL_HASH_VERIFICATION) {
+            Log.w(TAG, "sha verification skipped (debug)")
+            return VerifyResult.Valid
         }
         // 캐시 hit: (size, mtime, expected sha) 가 일치하면 SHA 재계산 스킵.
         val cachedSha = verifyCache.getString(cacheKey(entry, "sha"), null)
@@ -78,10 +89,10 @@ class ModelStore(private val context: Context) {
         val f = fileFor(entry)
         if (!f.isFile) return VerifyResult.Missing
         val actualSize = f.length()
-        if (actualSize != entry.sizeBytes) {
+        if (actualSize != entry.sizeBytes && !BuildConfig.SKIP_MODEL_HASH_VERIFICATION) {
             return VerifyResult.SizeMismatch(expected = entry.sizeBytes, actual = actualSize)
         }
-        if (!sha256Hex.equals(entry.sha256, ignoreCase = true)) {
+        if (!sha256Hex.equals(entry.sha256, ignoreCase = true) && !BuildConfig.SKIP_MODEL_HASH_VERIFICATION) {
             return VerifyResult.HashMismatch(expected = entry.sha256.lowercase(), actual = sha256Hex)
         }
         verifyCache.edit().apply {
@@ -155,6 +166,7 @@ class ModelStore(private val context: Context) {
 
     companion object {
         private const val PREFS_VERIFY_CACHE = "model_verify_cache"
+        private const val TAG = "ModelStore"
 
         private fun cacheKey(entry: ModelEntry, field: String): String = "${entry.id}.$field"
 
