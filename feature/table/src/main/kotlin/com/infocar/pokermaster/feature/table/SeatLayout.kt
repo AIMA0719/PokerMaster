@@ -653,7 +653,7 @@ private fun PayoutBadge(amount: Long) {
     val pulse = pulseFloat(initial = 0.85f, target = 1f, periodMs = 600, label = "payout-pulse")
     // Phase2: 0 → amount 카운트업 (700ms FastOutSlow). reduceMotion 시 즉시 표시.
     val reduceMotion = LocalReduceMotion.current
-    val progress = remember(amount) { Animatable(0f) }
+    val progress = remember { Animatable(0f) }
     LaunchedEffect(amount, reduceMotion) {
         if (reduceMotion) {
             progress.snapTo(1f)
