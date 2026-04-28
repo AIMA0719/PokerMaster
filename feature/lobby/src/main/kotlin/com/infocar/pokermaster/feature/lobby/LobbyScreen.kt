@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
@@ -45,9 +46,11 @@ import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.infocar.pokermaster.core.ui.theme.HangameColors
@@ -380,25 +383,85 @@ private fun DailyBonusDialog(
     newBalance: Long,
     onDismiss: () -> Unit,
 ) {
+    // 잔여9-2: chipsGranted 0→amount 카운트업 (800ms) + 칩 이모지 bounce (0→1.2→1.0).
+    val animatedGranted = remember { Animatable(0f) }
+    LaunchedEffect(chipsGranted) {
+        animatedGranted.snapTo(0f)
+        animatedGranted.animateTo(
+            chipsGranted.toFloat(),
+            animationSpec = tween(durationMillis = 800, easing = FastOutSlowInEasing),
+        )
+    }
+    val bounceScale = remember { Animatable(0f) }
+    LaunchedEffect(Unit) {
+        bounceScale.animateTo(1.2f, tween(220, easing = FastOutSlowInEasing))
+        bounceScale.animateTo(1.0f, tween(140, easing = FastOutSlowInEasing))
+    }
+    val displayGranted = animatedGranted.value.toLong()
+
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("오늘의 보너스") },
-        text = {
-            Column {
-                Text("+${formatChips(chipsGranted)} chips 지급", fontWeight = FontWeight.SemiBold)
-                Text("연속 접속 $streak 일", style = MaterialTheme.typography.bodySmall)
-                Text("현재 잔고: ${formatChips(newBalance)}", style = MaterialTheme.typography.bodySmall)
+        title = {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text(text = "🪙", modifier = Modifier.scale(bounceScale.value))
+                Text("오늘의 보너스", fontWeight = FontWeight.Black)
             }
         },
-        confirmButton = { Button(onClick = onDismiss) { Text("확인") } },
+        text = {
+            Column {
+                Text(
+                    "+${formatChips(displayGranted)}",
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.Black,
+                    color = HangameColors.PotValue,
+                )
+                if (streak > 0) {
+                    Text(
+                        "🔥 연속 $streak 일",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = HangameColors.TextLime,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                }
+                Text(
+                    "잔고 ${formatChips(newBalance)}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = HangameColors.TextMuted,
+                )
+            }
+        },
+        confirmButton = { Button(onClick = onDismiss) { Text("받기") } },
     )
 }
 
 @Composable
 private fun BankruptDialog(balance: Long, onReset: () -> Unit) {
+    // 잔여9-2: 💸 이모지 한 번 wobble shake (5 keyframes ~500ms) + 빨간 강조.
+    val shake = remember { Animatable(0f) }
+    LaunchedEffect(Unit) {
+        for (k in listOf(0f, 1f, -1f, 0.5f, -0.3f, 0f)) {
+            shake.animateTo(k, tween(durationMillis = 90, easing = FastOutSlowInEasing))
+        }
+    }
     AlertDialog(
         onDismissRequest = { /* 강제 선택 — 닫기 비활성 */ },
-        title = { Text("파산") },
+        title = {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text(
+                    text = "💸",
+                    modifier = Modifier.offset {
+                        IntOffset(x = (shake.value * 6.dp.toPx()).toInt(), y = 0)
+                    },
+                )
+                Text("파산", fontWeight = FontWeight.Black, color = HangameColors.BtnFold)
+            }
+        },
         text = {
             Text(
                 "현재 잔고 ${formatChips(balance)} 로는 테이블 입장이 불가능합니다." +

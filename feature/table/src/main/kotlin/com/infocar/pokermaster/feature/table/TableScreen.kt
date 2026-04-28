@@ -238,6 +238,20 @@ fun TableScreen(
         }
     }
 
+    // 잔여9-1: 본인 차례 30초 무응답 alert. 30초 경과 후 5초 간격으로 가벼운 햅틱 TICK.
+    // toAct 바뀌면 LaunchedEffect 재시작 → 이전 alert 자동 취소. pendingShowdown 시 skip.
+    LaunchedEffect(state.toActSeat, state.pendingShowdown) {
+        val toAct = state.toActSeat ?: return@LaunchedEffect
+        if (state.pendingShowdown != null) return@LaunchedEffect
+        val player = state.players.firstOrNull { it.seat == toAct } ?: return@LaunchedEffect
+        if (!player.isHuman) return@LaunchedEffect
+        delay(30_000L)
+        while (true) {
+            if (sfxPolicy.hapticEnabled) haptic.onAction()
+            delay(5_000L)
+        }
+    }
+
     // Phase1: 게임 오버 bust 햅틱 — 본인 패배(파산) 시 한 번 강하게.
     LaunchedEffect(gameOver, sfxPolicy) {
         val info = gameOver ?: return@LaunchedEffect

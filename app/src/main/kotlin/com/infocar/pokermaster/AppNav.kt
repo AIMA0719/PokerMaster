@@ -1,5 +1,7 @@
 package com.infocar.pokermaster
 
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -19,6 +21,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.navigation.NavType
@@ -241,9 +245,24 @@ private fun SplashScreen(onReady: () -> Unit) {
                 .makeText(ctx, DeviceFingerprint.label(tier), android.widget.Toast.LENGTH_LONG)
                 .show()
         }
-        delay(800L)
+        delay(1_100L)
         onReady()
     }
+    // 잔여9-3: Splash cinematic — 카드 슈트 scaleIn 0.55→1.0 (700ms), 타이틀 200ms 후 fadeIn.
+    val cardScale = remember { Animatable(0.55f) }
+    val cardAlpha = remember { Animatable(0f) }
+    val titleAlpha = remember { Animatable(0f) }
+    LaunchedEffect(Unit) {
+        cardAlpha.animateTo(1f, tween(durationMillis = 380))
+    }
+    LaunchedEffect(Unit) {
+        cardScale.animateTo(1f, tween(durationMillis = 700, easing = FastOutSlowInEasing))
+    }
+    LaunchedEffect(Unit) {
+        delay(220L)
+        titleAlpha.animateTo(1f, tween(durationMillis = 520, easing = FastOutSlowInEasing))
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -257,12 +276,16 @@ private fun SplashScreen(onReady: () -> Unit) {
                 text = "♠♥♦♣",
                 style = MaterialTheme.typography.displayMedium,
                 color = com.infocar.pokermaster.core.ui.theme.HangameColors.TextSecondary,
+                modifier = Modifier
+                    .alpha(cardAlpha.value)
+                    .scale(cardScale.value),
             )
             Text(
                 text = stringResource(id = R.string.splash_title),
                 style = MaterialTheme.typography.displayLarge,
                 color = com.infocar.pokermaster.core.ui.theme.HangameColors.TextPrimary,
                 fontWeight = androidx.compose.ui.text.font.FontWeight.Black,
+                modifier = Modifier.alpha(titleAlpha.value),
             )
         }
     }
