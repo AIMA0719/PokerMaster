@@ -213,6 +213,11 @@ fun LobbyScreen(
             balance = e.currentBalance,
             onReset = viewModel::onResetBankrupt,
         )
+        is LobbyEvent.TierUp -> TierUpDialog(
+            newTier = e.newTier,
+            oldTier = e.oldTier,
+            onDismiss = viewModel::dismissEvent,
+        )
         is LobbyEvent.Error -> LaunchedEffect(e) {
             android.widget.Toast.makeText(ctx, e.message, android.widget.Toast.LENGTH_SHORT).show()
             viewModel.dismissEvent()
@@ -260,7 +265,7 @@ private fun WalletHeader(balance: Long, streak: Int, lifetime: Long) {
                     color = HangameColors.TextChip,
                 )
                 if (lifetime > 0L) {
-                    val tier = tierFor(lifetime)
+                    val tier = TierLevel.forLifetime(lifetime)
                     Text(
                         text = "${tier.emoji} 누적 ${formatChips(lifetime)} · ${tier.label}",
                         style = MaterialTheme.typography.labelSmall,
@@ -463,19 +468,7 @@ private fun MissionRow(todayHands: Int, mission: Mission, onClaim: () -> Unit) {
     }
 }
 
-/**
- * Phase4: totalEarnedLifetime 기반 tier. 임계치는 직관적 단계 — 도달 자체가 작은 보상.
- * 진급 모달은 미도입 (Phase 7 도전과제 통합 시 추가).
- */
-private data class Tier(val emoji: String, val label: String)
-
-private fun tierFor(lifetime: Long): Tier = when {
-    lifetime >= 5_000_000L -> Tier("👑", "DIAMOND")
-    lifetime >= 1_000_000L -> Tier("💎", "PLATINUM")
-    lifetime >= 200_000L -> Tier("🥇", "GOLD")
-    lifetime >= 50_000L -> Tier("🥈", "SILVER")
-    else -> Tier("🥉", "BRONZE")
-}
+// Phase C: tier 정의는 TierLevel enum (Tier.kt) 으로 이동. 진급 모달 / 임계치 단일 소스.
 
 @Composable
 private fun SeatCountPicker(
@@ -612,6 +605,64 @@ private fun DailyBonusDialog(
             }
         },
         confirmButton = { Button(onClick = onDismiss) { Text("받기") } },
+    )
+}
+
+@Composable
+private fun TierUpDialog(newTier: TierLevel, oldTier: TierLevel, onDismiss: () -> Unit) {
+    // Phase C: 이모지 bounce + 진급 메시지. 한 번 노출 후 dismiss → repository 가 lastSeen 갱신.
+    val bounce = androidx.compose.runtime.remember { androidx.compose.animation.core.Animatable(0f) }
+    LaunchedEffect(Unit) {
+        bounce.animateTo(
+            1.3f,
+            androidx.compose.animation.core.tween(durationMillis = 280, easing = androidx.compose.animation.core.FastOutSlowInEasing),
+        )
+        bounce.animateTo(
+            1.0f,
+            androidx.compose.animation.core.tween(durationMillis = 180, easing = androidx.compose.animation.core.FastOutSlowInEasing),
+        )
+    }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Text(
+                    text = newTier.emoji,
+                    modifier = Modifier.scale(bounce.value),
+                    style = MaterialTheme.typography.displaySmall,
+                )
+                Text("티어 진급!", fontWeight = FontWeight.Black)
+            }
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(
+                    "${oldTier.label} → ${newTier.label}",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = HangameColors.PotValue,
+                )
+                Text(
+                    "축하합니다! 누적 ${formatChips(newTier.threshold)} 칩을 돌파했습니다.",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                newTier.next()?.let { next ->
+                    Text(
+                        "다음 티어: ${next.emoji} ${next.label} (누적 ${formatChips(next.threshold)})",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = HangameColors.TextMuted,
+                    )
+                } ?: Text(
+                    "최고 티어 달성! 🎉",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = HangameColors.TextLime,
+                )
+            }
+        },
+        confirmButton = { Button(onClick = onDismiss) { Text("확인") } },
     )
 }
 
