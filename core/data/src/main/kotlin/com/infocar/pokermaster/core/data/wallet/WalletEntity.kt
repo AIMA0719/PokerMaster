@@ -19,8 +19,11 @@ data class WalletEntity(
     val lastCheckInEpochDay: Long,
     val streakDays: Int,
     val totalEarnedLifetime: Long,
+    /** Phase E: 오프라인 ELO 점수. 기본 1200 (chess-style). 핸드 결과별 단순 delta. */
+    val elo: Int = DEFAULT_ELO,
 ) {
     companion object {
         const val SINGLETON_ID: Int = 0
+        const val DEFAULT_ELO: Int = 1200
     }
 }

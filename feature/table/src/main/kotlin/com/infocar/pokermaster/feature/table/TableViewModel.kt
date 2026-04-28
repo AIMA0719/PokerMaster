@@ -7,6 +7,7 @@ import com.infocar.pokermaster.core.data.history.ActionLogEntry
 import com.infocar.pokermaster.core.data.history.HandHistoryRecord
 import com.infocar.pokermaster.core.data.history.HandHistoryRepository
 import com.infocar.pokermaster.core.data.wallet.BuyInResult
+import com.infocar.pokermaster.core.data.wallet.HandOutcome
 import com.infocar.pokermaster.core.data.wallet.WalletRepository
 import com.infocar.pokermaster.core.model.Action
 import com.infocar.pokermaster.core.model.ActionType
@@ -472,6 +473,23 @@ class TableViewModel private constructor(
         )
         scope.launch(NonCancellable) {
             runCatching { repo.record(record) }
+        }
+
+        // Phase E: 핸드 결과로 ELO 변경 (WIN +20 / LOSE -10 / TIE 0). settle 과 분리 —
+        // 핸드 종료마다 즉시 반영, settle 은 세션 end 1회만.
+        val walletForElo = walletRepo
+        val humanSeat = state.players.firstOrNull { it.isHuman }?.seat
+        if (walletForElo != null && humanSeat != null) {
+            val payout = state.pendingShowdown?.payouts?.get(humanSeat) ?: 0L
+            val committed = state.players.firstOrNull { it.isHuman }?.committedThisHand ?: 0L
+            val outcome = when {
+                payout > committed -> HandOutcome.WIN
+                payout < committed -> HandOutcome.LOSE
+                else -> HandOutcome.TIE
+            }
+            scope.launch(NonCancellable) {
+                runCatching { walletForElo.applyHandOutcome(outcome) }
+            }
         }
     }
 

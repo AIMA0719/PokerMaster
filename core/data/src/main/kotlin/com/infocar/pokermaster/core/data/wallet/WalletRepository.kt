@@ -48,6 +48,14 @@ interface WalletRepository {
      */
     suspend fun claimMissionReward(amount: Long)
 
+    /**
+     * Phase E: 핸드 종료 후 ELO 점수 변경. 결과 기반 단순 delta:
+     *  - WIN: +20, LOSE: -10, TIE: 0.
+     * 진짜 ELO 공식 (K-factor + opponent rating) 은 향후 페르소나 base ELO 도입 후 확장.
+     * 최소 [MIN_ELO] 미만 차단 (밑바닥 방지).
+     */
+    suspend fun applyHandOutcome(outcome: HandOutcome)
+
     companion object {
         /** 신규 사용자 / 파산 리셋 시 지급 칩. */
         const val STARTING_BANKROLL: Long = 50_000L
@@ -57,7 +65,15 @@ interface WalletRepository {
 
         /** Daily bonus 기본 보상 (streak 무관 v1). */
         const val DAILY_BONUS: Long = 2_000L
+
+        /** Phase E: ELO 하한선 — 더 떨어지지 않게 보호. */
+        const val MIN_ELO: Int = 800
     }
+}
+
+/** Phase E: 핸드 결과 분류 — TableViewModel 이 payout vs committedThisHand 비교로 산출. */
+enum class HandOutcome {
+    WIN, LOSE, TIE
 }
 
 data class WalletState(
@@ -65,6 +81,7 @@ data class WalletState(
     val streakDays: Int,
     val lastCheckInEpochDay: Long,
     val totalEarnedLifetime: Long,
+    val elo: Int = WalletEntity.DEFAULT_ELO,
 )
 
 sealed interface BuyInResult {
@@ -126,6 +143,19 @@ class RoomWalletRepository(
         dao.upsert(next)
     }
 
+    override suspend fun applyHandOutcome(outcome: HandOutcome) {
+        val delta = when (outcome) {
+            HandOutcome.WIN -> 20
+            HandOutcome.LOSE -> -10
+            HandOutcome.TIE -> 0
+        }
+        if (delta == 0) return
+        val current = currentOrSeeded()
+        val newElo = (current.elo + delta).coerceAtLeast(WalletRepository.MIN_ELO)
+        if (newElo == current.elo) return
+        dao.upsert(current.copy(elo = newElo))
+    }
+
     override suspend fun resetBankrupt() {
         val current = currentOrSeeded()
         val next = current.copy(balanceChips = WalletRepository.STARTING_BANKROLL)
@@ -173,6 +203,7 @@ class RoomWalletRepository(
         lastCheckInEpochDay = 0L,
         streakDays = 0,
         totalEarnedLifetime = 0L,
+        elo = WalletEntity.DEFAULT_ELO,
     )
 
     private fun initialState(): WalletState = WalletState(
@@ -180,6 +211,7 @@ class RoomWalletRepository(
         streakDays = 0,
         lastCheckInEpochDay = 0L,
         totalEarnedLifetime = 0L,
+        elo = WalletEntity.DEFAULT_ELO,
     )
 
     private fun WalletEntity.toState(): WalletState = WalletState(
@@ -187,5 +219,6 @@ class RoomWalletRepository(
         streakDays = streakDays,
         lastCheckInEpochDay = lastCheckInEpochDay,
         totalEarnedLifetime = totalEarnedLifetime,
+        elo = elo,
     )
 }

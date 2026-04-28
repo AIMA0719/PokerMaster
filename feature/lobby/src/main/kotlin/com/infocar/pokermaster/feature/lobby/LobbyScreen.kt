@@ -119,6 +119,7 @@ fun LobbyScreen(
                     balance = wallet.balanceChips,
                     streak = wallet.streakDays,
                     lifetime = wallet.totalEarnedLifetime,
+                    elo = wallet.elo,
                 )
             }
 
@@ -227,7 +228,7 @@ fun LobbyScreen(
 }
 
 @Composable
-private fun WalletHeader(balance: Long, streak: Int, lifetime: Long) {
+private fun WalletHeader(balance: Long, streak: Int, lifetime: Long, elo: Int) {
     // Phase4: 잔고 카운트업 — 잔고가 변할 때 600ms 부드럽게.
     val animatedBalance = remember { Animatable(balance.toFloat()) }
     LaunchedEffect(balance) {
@@ -273,8 +274,8 @@ private fun WalletHeader(balance: Long, streak: Int, lifetime: Long) {
                     )
                 }
             }
-            if (streak > 0) {
-                Column(horizontalAlignment = Alignment.End) {
+            Column(horizontalAlignment = Alignment.End) {
+                if (streak > 0) {
                     Text(
                         text = "🔥 $streak 일",
                         style = MaterialTheme.typography.titleMedium,
@@ -282,7 +283,15 @@ private fun WalletHeader(balance: Long, streak: Int, lifetime: Long) {
                         fontWeight = FontWeight.SemiBold,
                     )
                     StreakDots(streak = streak)
+                    Spacer(Modifier.height(4.dp))
                 }
+                // Phase E: ELO 점수. 항상 표시 (1200 시작).
+                Text(
+                    text = "📊 ELO $elo",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = HangameColors.TextSecondary,
+                    fontWeight = FontWeight.SemiBold,
+                )
             }
         }
     }

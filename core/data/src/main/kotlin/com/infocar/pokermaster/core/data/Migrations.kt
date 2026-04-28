@@ -24,7 +24,17 @@ internal val MIGRATION_1_2: Migration = object : Migration(1, 2) {
     }
 }
 
+/**
+ * v2 → v3 (Phase E): wallet 에 `elo` INTEGER 컬럼 추가. 기본 1200 — 신규/기존 사용자 동일.
+ */
+internal val MIGRATION_2_3: Migration = object : Migration(2, 3) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `wallet` ADD COLUMN `elo` INTEGER NOT NULL DEFAULT 1200")
+    }
+}
+
 /** PokerMasterDatabase 에 등록할 모든 정식 migration. 신규 추가 시 끝에 append. */
 internal val ALL_MIGRATIONS: Array<Migration> = arrayOf(
     MIGRATION_1_2,
+    MIGRATION_2_3,
 )
