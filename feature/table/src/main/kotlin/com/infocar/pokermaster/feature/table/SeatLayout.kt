@@ -624,14 +624,24 @@ private fun AllInBadge() {
 @Composable
 private fun PayoutPulse(amount: Long) {
     // Phase5: enter 시 아래에서 위로 떠오르며 등장, exit 시 위로 사라짐 — toast 풍 트레일.
+    // Phase8: reduceMotion 시 단순 fade — slide/scale 효과 skip.
+    val reduceMotion = LocalReduceMotion.current
     AnimatedVisibility(
         visible = amount > 0L,
-        enter = fadeIn(tween(500)) +
-            scaleIn(tween(500), initialScale = 0.3f) +
-            slideInVertically(tween(500)) { full -> full / 2 },
-        exit = fadeOut(tween(280)) +
-            scaleOut(tween(280), targetScale = 0.7f) +
-            slideOutVertically(tween(280)) { full -> -full / 3 },
+        enter = if (reduceMotion) {
+            fadeIn(tween(220))
+        } else {
+            fadeIn(tween(500)) +
+                scaleIn(tween(500), initialScale = 0.3f) +
+                slideInVertically(tween(500)) { full -> full / 2 }
+        },
+        exit = if (reduceMotion) {
+            fadeOut(tween(160))
+        } else {
+            fadeOut(tween(280)) +
+                scaleOut(tween(280), targetScale = 0.7f) +
+                slideOutVertically(tween(280)) { full -> -full / 3 }
+        },
     ) {
         PayoutBadge(amount = amount)
     }
