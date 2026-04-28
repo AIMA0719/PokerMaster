@@ -39,6 +39,7 @@ class SettingsRepository @Inject constructor(
         SfxPolicy(
             soundEnabled = prefs[Keys.SoundEnabled] ?: SfxPolicy.DEFAULT_SOUND_ENABLED,
             hapticEnabled = prefs[Keys.HapticEnabled] ?: SfxPolicy.DEFAULT_HAPTIC_ENABLED,
+            bgmEnabled = prefs[Keys.BgmEnabled] ?: SfxPolicy.DEFAULT_BGM_ENABLED,
         )
     }
 
@@ -79,6 +80,7 @@ class SettingsRepository @Inject constructor(
         store.edit {
             it[Keys.SoundEnabled] = policy.soundEnabled
             it[Keys.HapticEnabled] = policy.hapticEnabled
+            it[Keys.BgmEnabled] = policy.bgmEnabled
         }
     }
 
@@ -110,6 +112,7 @@ class SettingsRepository @Inject constructor(
     private object Keys {
         val SoundEnabled = booleanPreferencesKey("sfx.sound_enabled")
         val HapticEnabled = booleanPreferencesKey("sfx.haptic_enabled")
+        val BgmEnabled = booleanPreferencesKey("sfx.bgm_enabled")
         val ColorblindMode = stringPreferencesKey("a11y.colorblind_mode")
         val LargerText = booleanPreferencesKey("a11y.larger_text")
         val HighContrastCards = booleanPreferencesKey("a11y.high_contrast_cards")

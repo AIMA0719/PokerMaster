@@ -86,6 +86,7 @@ import com.infocar.pokermaster.feature.table.guide.GuideOverlay
 import com.infocar.pokermaster.feature.table.guide.GuideSettings
 import com.infocar.pokermaster.feature.table.guide.GuideStep
 import com.infocar.pokermaster.feature.table.settings.SettingsRepository
+import com.infocar.pokermaster.feature.table.sfx.BgmManager
 import com.infocar.pokermaster.feature.table.sfx.HapticManager
 import com.infocar.pokermaster.feature.table.sfx.SfxKind
 import com.infocar.pokermaster.feature.table.sfx.SfxPolicy
@@ -190,6 +191,18 @@ fun TableScreen(
     }
     DisposableEffect(sound) { onDispose { sound.release() } }
     val sfxPolicy by settingsRepo.sfxPolicy.collectAsState(initial = SfxPolicy.Default)
+
+    // 잔여9-BGM: BGM 매니저. 자산 (raw/bgm_table) 미설치 시 silent — 자동으로 안 재생.
+    val bgm = remember(context) { BgmManager(context) }
+    DisposableEffect(bgm) { onDispose { bgm.release() } }
+    LaunchedEffect(sfxPolicy.bgmEnabled) {
+        if (sfxPolicy.bgmEnabled) {
+            val track = BgmManager.resolveTrack(context, "bgm_table")
+            if (track != 0) bgm.play(track)
+        } else {
+            bgm.stop()
+        }
+    }
 
     // Phase1: 인간 액션 디스패처 — SFX/Haptic 은 viewModel.actionEvent collect 로 단일화.
     val onHumanActionWithSfx: OnAction = { action -> viewModel.onHumanAction(action) }

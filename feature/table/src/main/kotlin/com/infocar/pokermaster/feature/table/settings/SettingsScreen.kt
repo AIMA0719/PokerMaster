@@ -166,6 +166,16 @@ fun SettingsScreen(
                         checked = state.sfx.hapticEnabled,
                         onChange = viewModel::setHapticEnabled,
                     )
+                    ToggleRow(
+                        label = "배경음악 (BGM)",
+                        checked = state.sfx.bgmEnabled,
+                        onChange = viewModel::setBgmEnabled,
+                    )
+                    Text(
+                        "BGM 자산이 설치된 경우에만 재생됩니다 (자산 미설치 시 무음).",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = HangameColors.TextMuted,
+                    )
                 }
 
                 SectionCard("접근성") {

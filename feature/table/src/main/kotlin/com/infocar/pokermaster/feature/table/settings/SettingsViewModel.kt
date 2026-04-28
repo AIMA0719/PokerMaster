@@ -58,6 +58,11 @@ class SettingsViewModel @Inject constructor(
         settingsRepo.setSfxPolicy(current.copy(hapticEnabled = enabled))
     }
 
+    fun setBgmEnabled(enabled: Boolean) = viewModelScope.launch {
+        val current = state.value.sfx
+        settingsRepo.setSfxPolicy(current.copy(bgmEnabled = enabled))
+    }
+
     fun setColorblindMode(mode: ColorblindMode) = viewModelScope.launch {
         settingsRepo.setA11ySettings(state.value.a11y.copy(colorblindMode = mode))
     }
