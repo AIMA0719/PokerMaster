@@ -49,12 +49,17 @@ interface WalletRepository {
     suspend fun claimMissionReward(amount: Long)
 
     /**
-     * Phase E: 핸드 종료 후 ELO 점수 변경. 결과 기반 단순 delta:
-     *  - WIN: +20, LOSE: -10, TIE: 0.
-     * 진짜 ELO 공식 (K-factor + opponent rating) 은 향후 페르소나 base ELO 도입 후 확장.
-     * 최소 [MIN_ELO] 미만 차단 (밑바닥 방지).
+     * 핸드 종료 후 ELO 점수 변경. 정식 ELO K-factor 공식:
+     *
+     *  expected = 1 / (1 + 10^((opponentAvgElo - myElo) / 400))
+     *  delta = K * (actual - expected)
+     *    actual: WIN 1.0 / LOSE 0.0 / TIE 0.5
+     *    K = [K_FACTOR] = 32 (체스 표준)
+     *
+     * opponentAvgElo 는 호출자 (TableViewModel) 가 NPC 페르소나 base ELO 평균으로 산출.
+     * MIN_ELO 하한 보호. delta=0 또는 결과 동일 시 no-op (DB write 회피).
      */
-    suspend fun applyHandOutcome(outcome: HandOutcome)
+    suspend fun applyHandOutcome(outcome: HandOutcome, opponentAvgElo: Int)
 
     companion object {
         /** 신규 사용자 / 파산 리셋 시 지급 칩. */
@@ -68,6 +73,9 @@ interface WalletRepository {
 
         /** Phase E: ELO 하한선 — 더 떨어지지 않게 보호. */
         const val MIN_ELO: Int = 800
+
+        /** Phase E2: ELO K-factor (체스 표준 32 채택). 매 핸드당 최대 ±32 변동. */
+        const val K_FACTOR: Int = 32
     }
 }
 
@@ -143,14 +151,17 @@ class RoomWalletRepository(
         dao.upsert(next)
     }
 
-    override suspend fun applyHandOutcome(outcome: HandOutcome) {
-        val delta = when (outcome) {
-            HandOutcome.WIN -> 20
-            HandOutcome.LOSE -> -10
-            HandOutcome.TIE -> 0
-        }
-        if (delta == 0) return
+    override suspend fun applyHandOutcome(outcome: HandOutcome, opponentAvgElo: Int) {
         val current = currentOrSeeded()
+        val actual = when (outcome) {
+            HandOutcome.WIN -> 1.0
+            HandOutcome.LOSE -> 0.0
+            HandOutcome.TIE -> 0.5
+        }
+        // expected score (ELO 표준 공식). 강한 상대 이김 → expected↓ → delta↑.
+        val expected = 1.0 / (1.0 + Math.pow(10.0, (opponentAvgElo - current.elo).toDouble() / 400.0))
+        val delta = (WalletRepository.K_FACTOR * (actual - expected)).toInt()
+        if (delta == 0) return
         val newElo = (current.elo + delta).coerceAtLeast(WalletRepository.MIN_ELO)
         if (newElo == current.elo) return
         dao.upsert(current.copy(elo = newElo))

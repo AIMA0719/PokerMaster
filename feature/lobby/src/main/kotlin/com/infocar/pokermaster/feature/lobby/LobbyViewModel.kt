@@ -88,12 +88,17 @@ class LobbyViewModel @Inject constructor(
         // 일일 미션 상태 갱신 (오늘 시작된 핸드 카운트 + 수령 여부).
         refreshMission()
         // Phase C: 티어 진급 감지. 첫 진입 (last seen=null) 은 모달 X, 현재 tier 저장만.
-        // 이후 진입 시 ordinal 증가하면 TierUp 모달 1회.
+        // 이후 진입 시 ordinal 증가하면 TierUp 모달 1회 + Phase C2: 보상 chip 적립.
         val currentTier = TierLevel.forLifetime(state.totalEarnedLifetime)
         val seenTier = tierRepo.lastSeenTier()
         if (seenTier == null) {
             tierRepo.saveTier(currentTier)
         } else if (currentTier.ordinal > seenTier.ordinal) {
+            // 보상 적립 — wallet 가산. 적립 실패해도 모달은 노출 (사용자에 보임은 보장).
+            if (currentTier.rewardChips > 0L) {
+                runCatching { walletRepo.claimMissionReward(currentTier.rewardChips) }
+                    .onFailure { android.util.Log.w("LobbyVM", "tier reward credit failed", it) }
+            }
             _events.value = LobbyEvent.TierUp(newTier = currentTier, oldTier = seenTier)
             tierRepo.saveTier(currentTier)
         }

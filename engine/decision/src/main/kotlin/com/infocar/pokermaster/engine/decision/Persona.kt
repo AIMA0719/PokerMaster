@@ -5,25 +5,28 @@ import com.infocar.pokermaster.core.model.ActionType
 /**
  * 페르소나 정의 (v1.1 §3.4).
  *
- * 두 차원으로 모델화:
+ * 차원:
  *  - looseness: 1.0 = 매우 loose (자주 콜/콜다운), 0.0 = 매우 tight (자주 폴드)
  *  - aggression: 1.0 = 매우 aggressive (자주 raise/bluff), 0.0 = 매우 passive (체크/콜만)
  *  - randomness: 0.0 = 결정적, 1.0 = 매우 변동
+ *  - baseElo: ELO K-factor 계산용 상대 점수. TIGER/STUDENT/PRO 강함 (1400+),
+ *    GRANPA/NOOB 약함 (~1000). 사용자 시작 1200 기준 ±100~300 분포.
  */
 enum class Persona(
     val displayName: String,
     val looseness: Double,
     val aggression: Double,
     val randomness: Double,
+    val baseElo: Int,
 ) {
-    GRANPA("영자할배", looseness = 0.75, aggression = 0.20, randomness = 0.20),     // LP
-    TIGER("호랑이형", looseness = 0.45, aggression = 0.85, randomness = 0.15),       // TAG
-    SILENT("무표정", looseness = 0.35, aggression = 0.30, randomness = 0.05),        // TP
-    BLUFFER("허세군", looseness = 0.65, aggression = 0.90, randomness = 0.30),       // LAG
-    STUDENT("공대생", looseness = 0.50, aggression = 0.60, randomness = 0.05),       // GTO 근사
-    AUNT("동네아줌마", looseness = 0.70, aggression = 0.50, randomness = 0.40),      // 직관형
-    PRO("프로", looseness = 0.50, aggression = 0.65, randomness = 0.10),             // 균형
-    NOOB("초보", looseness = 0.55, aggression = 0.45, randomness = 0.50);            // 랜덤성↑
+    GRANPA("영자할배", looseness = 0.75, aggression = 0.20, randomness = 0.20, baseElo = 1000),     // LP, 약함
+    TIGER("호랑이형", looseness = 0.45, aggression = 0.85, randomness = 0.15, baseElo = 1500),     // TAG, 매우 강함
+    SILENT("무표정", looseness = 0.35, aggression = 0.30, randomness = 0.05, baseElo = 1250),      // TP, 안정적
+    BLUFFER("허세군", looseness = 0.65, aggression = 0.90, randomness = 0.30, baseElo = 1300),     // LAG, 변칙
+    STUDENT("공대생", looseness = 0.50, aggression = 0.60, randomness = 0.05, baseElo = 1450),     // GTO 근사, 강함
+    AUNT("동네아줌마", looseness = 0.70, aggression = 0.50, randomness = 0.40, baseElo = 1100),    // 직관형
+    PRO("프로", looseness = 0.50, aggression = 0.65, randomness = 0.10, baseElo = 1400),           // 균형, 강함
+    NOOB("초보", looseness = 0.55, aggression = 0.45, randomness = 0.50, baseElo = 900);           // 랜덤성↑, 약함
 }
 
 /**

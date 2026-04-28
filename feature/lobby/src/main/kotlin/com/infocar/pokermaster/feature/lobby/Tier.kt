@@ -10,12 +10,14 @@ enum class TierLevel(
     val emoji: String,
     val label: String,
     val threshold: Long,
+    /** Phase C2: 진급 시 1회성 보상 chip. BRONZE 는 시작 티어라 0. */
+    val rewardChips: Long,
 ) {
-    BRONZE("🥉", "BRONZE", 0L),
-    SILVER("🥈", "SILVER", 50_000L),
-    GOLD("🥇", "GOLD", 200_000L),
-    PLATINUM("💎", "PLATINUM", 1_000_000L),
-    DIAMOND("👑", "DIAMOND", 5_000_000L);
+    BRONZE("🥉", "BRONZE", 0L, rewardChips = 0L),
+    SILVER("🥈", "SILVER", 50_000L, rewardChips = 5_000L),
+    GOLD("🥇", "GOLD", 200_000L, rewardChips = 15_000L),
+    PLATINUM("💎", "PLATINUM", 1_000_000L, rewardChips = 50_000L),
+    DIAMOND("👑", "DIAMOND", 5_000_000L, rewardChips = 200_000L);
 
     /** 다음 티어 — DIAMOND 면 null. */
     fun next(): TierLevel? {

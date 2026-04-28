@@ -619,8 +619,9 @@ private fun DailyBonusDialog(
 
 @Composable
 private fun TierUpDialog(newTier: TierLevel, oldTier: TierLevel, onDismiss: () -> Unit) {
-    // Phase C: 이모지 bounce + 진급 메시지. 한 번 노출 후 dismiss → repository 가 lastSeen 갱신.
+    // Phase C: 이모지 bounce + 진급 메시지. Phase C2: 보상 chip 카운트업 + 강조.
     val bounce = androidx.compose.runtime.remember { androidx.compose.animation.core.Animatable(0f) }
+    val rewardProgress = androidx.compose.runtime.remember { androidx.compose.animation.core.Animatable(0f) }
     LaunchedEffect(Unit) {
         bounce.animateTo(
             1.3f,
@@ -631,6 +632,17 @@ private fun TierUpDialog(newTier: TierLevel, oldTier: TierLevel, onDismiss: () -
             androidx.compose.animation.core.tween(durationMillis = 180, easing = androidx.compose.animation.core.FastOutSlowInEasing),
         )
     }
+    LaunchedEffect(newTier) {
+        if (newTier.rewardChips > 0L) {
+            rewardProgress.animateTo(
+                1f,
+                androidx.compose.animation.core.tween(durationMillis = 900, easing = androidx.compose.animation.core.FastOutSlowInEasing),
+            )
+        } else {
+            rewardProgress.snapTo(1f)
+        }
+    }
+    val displayedReward = (newTier.rewardChips * rewardProgress.value).toLong()
     AlertDialog(
         onDismissRequest = onDismiss,
         title = {
@@ -658,6 +670,14 @@ private fun TierUpDialog(newTier: TierLevel, oldTier: TierLevel, onDismiss: () -
                     "축하합니다! 누적 ${formatChips(newTier.threshold)} 칩을 돌파했습니다.",
                     style = MaterialTheme.typography.bodyMedium,
                 )
+                if (newTier.rewardChips > 0L) {
+                    Text(
+                        text = "🪙 보상 +${formatChips(displayedReward)} 적립!",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Black,
+                        color = HangameColors.TextLime,
+                    )
+                }
                 newTier.next()?.let { next ->
                     Text(
                         "다음 티어: ${next.emoji} ${next.label} (누적 ${formatChips(next.threshold)})",

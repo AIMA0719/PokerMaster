@@ -8,7 +8,9 @@ import com.infocar.pokermaster.core.data.history.HandHistoryRecord
 import com.infocar.pokermaster.core.data.history.HandHistoryRepository
 import com.infocar.pokermaster.core.data.wallet.BuyInResult
 import com.infocar.pokermaster.core.data.wallet.HandOutcome
+import com.infocar.pokermaster.core.data.wallet.WalletEntity
 import com.infocar.pokermaster.core.data.wallet.WalletRepository
+import com.infocar.pokermaster.engine.decision.Persona
 import com.infocar.pokermaster.core.model.Action
 import com.infocar.pokermaster.core.model.ActionType
 import com.infocar.pokermaster.core.model.Declaration
@@ -475,8 +477,8 @@ class TableViewModel private constructor(
             runCatching { repo.record(record) }
         }
 
-        // Phase E: 핸드 결과로 ELO 변경 (WIN +20 / LOSE -10 / TIE 0). settle 과 분리 —
-        // 핸드 종료마다 즉시 반영, settle 은 세션 end 1회만.
+        // Phase E2: 정식 ELO K-factor + 페르소나 base ELO 평균. settle 과 분리 — 핸드 종료마다
+        // 즉시 반영, settle 은 세션 end 1회만.
         val walletForElo = walletRepo
         val humanSeat = state.players.firstOrNull { it.isHuman }?.seat
         if (walletForElo != null && humanSeat != null) {
@@ -487,8 +489,19 @@ class TableViewModel private constructor(
                 payout < committed -> HandOutcome.LOSE
                 else -> HandOutcome.TIE
             }
+            val opponentAvgElo = state.players
+                .filter { !it.isHuman }
+                .mapNotNull { player ->
+                    player.personaId?.let { id ->
+                        Persona.entries.firstOrNull { it.name == id }?.baseElo
+                    }
+                }
+                .takeIf { it.isNotEmpty() }
+                ?.average()
+                ?.toInt()
+                ?: WalletEntity.DEFAULT_ELO
             scope.launch(NonCancellable) {
-                runCatching { walletForElo.applyHandOutcome(outcome) }
+                runCatching { walletForElo.applyHandOutcome(outcome, opponentAvgElo) }
             }
         }
     }
