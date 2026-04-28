@@ -1,6 +1,9 @@
 package com.infocar.pokermaster.feature.lobby
 
 import androidx.annotation.StringRes
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -12,8 +15,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
@@ -29,6 +34,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
@@ -173,6 +179,18 @@ fun LobbyScreen(
 
 @Composable
 private fun WalletHeader(balance: Long, streak: Int, lifetime: Long) {
+    // Phase4: 잔고 카운트업 — 잔고가 변할 때 600ms 부드럽게.
+    val animatedBalance = remember { Animatable(balance.toFloat()) }
+    LaunchedEffect(balance) {
+        if (animatedBalance.value.toLong() != balance) {
+            animatedBalance.animateTo(
+                balance.toFloat(),
+                animationSpec = tween(durationMillis = 600, easing = FastOutSlowInEasing),
+            )
+        }
+    }
+    val displayBalance = animatedBalance.value.toLong()
+
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(12.dp),
@@ -192,29 +210,73 @@ private fun WalletHeader(balance: Long, streak: Int, lifetime: Long) {
                     color = HangameColors.TextMuted,
                 )
                 Text(
-                    text = "🪙 ${formatChips(balance)}",
+                    text = "🪙 ${formatChips(displayBalance)}",
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
                     color = HangameColors.TextChip,
                 )
                 if (lifetime > 0L) {
+                    val tier = tierFor(lifetime)
                     Text(
-                        text = "누적 ${formatChips(lifetime)}",
+                        text = "${tier.emoji} 누적 ${formatChips(lifetime)} · ${tier.label}",
                         style = MaterialTheme.typography.labelSmall,
                         color = HangameColors.TextMuted,
                     )
                 }
             }
             if (streak > 0) {
-                Text(
-                    text = "🔥 $streak 일",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = HangameColors.TextLime,
-                    fontWeight = FontWeight.SemiBold,
-                )
+                Column(horizontalAlignment = Alignment.End) {
+                    Text(
+                        text = "🔥 $streak 일",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = HangameColors.TextLime,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    StreakDots(streak = streak)
+                }
             }
         }
     }
+}
+
+/**
+ * Phase4: 7일 streak progress dot. 각 dot 1일 — 채워진 만큼 라임. 7일 도달 시 ★.
+ * 7일 초과 시 모든 dot 채워짐 + ★ 유지 (단순 표시 — 28일 등 누적 카운트는 별도).
+ */
+@Composable
+private fun StreakDots(streak: Int) {
+    val filled = streak.coerceAtMost(7)
+    Row(horizontalArrangement = Arrangement.spacedBy(2.dp), verticalAlignment = Alignment.CenterVertically) {
+        repeat(7) { i ->
+            Box(
+                modifier = Modifier
+                    .size(7.dp)
+                    .clip(CircleShape)
+                    .background(
+                        if (i < filled) HangameColors.TextLime
+                        else HangameColors.SeatBgFolded,
+                    ),
+            )
+        }
+        if (streak >= 7) {
+            Spacer(Modifier.size(3.dp))
+            Text(text = "★", color = HangameColors.PotValue, fontWeight = FontWeight.Black)
+        }
+    }
+}
+
+/**
+ * Phase4: totalEarnedLifetime 기반 tier. 임계치는 직관적 단계 — 도달 자체가 작은 보상.
+ * 진급 모달은 미도입 (Phase 7 도전과제 통합 시 추가).
+ */
+private data class Tier(val emoji: String, val label: String)
+
+private fun tierFor(lifetime: Long): Tier = when {
+    lifetime >= 5_000_000L -> Tier("👑", "DIAMOND")
+    lifetime >= 1_000_000L -> Tier("💎", "PLATINUM")
+    lifetime >= 200_000L -> Tier("🥇", "GOLD")
+    lifetime >= 50_000L -> Tier("🥈", "SILVER")
+    else -> Tier("🥉", "BRONZE")
 }
 
 @Composable
