@@ -3,6 +3,7 @@ package com.infocar.pokermaster.feature.table.sfx
 import android.content.Context
 import android.media.AudioAttributes
 import android.media.SoundPool
+import kotlin.random.Random
 
 /**
  * 효과음 종류. 실제 raw 리소스는 통합 패스에서 매핑.
@@ -71,13 +72,28 @@ class SoundManager(private val context: Context) {
 
     /**
      * 효과음 재생. 로드되지 않았거나 아직 준비 안 된 경우 조용히 무시.
+     *
+     * Phase3: pitch jitter — 같은 SFX 가 연속 재생될 때 단조로움 제거. effect 별 jitter 폭은
+     * [jitterFor] 가 분류 (HandWin / PotSweep 같은 강한 시그널은 0, CardDeal 은 ±0.08).
      */
     fun play(effect: SfxKind, volume: Float = DEFAULT_VOLUME) {
         val pool = soundPool ?: return
         val sid = loadedIds[effect] ?: return
         if (sid !in readyIds) return
         val clamped = volume.coerceIn(0f, 1f)
-        pool.play(sid, clamped, clamped, /* priority = */ 1, /* loop = */ 0, /* rate = */ 1f)
+        val jitter = jitterFor(effect)
+        val rate = if (jitter > 0f) {
+            (1f + (Random.nextFloat() - 0.5f) * 2f * jitter).coerceIn(0.5f, 2f)
+        } else 1f
+        pool.play(sid, clamped, clamped, /* priority = */ 1, /* loop = */ 0, rate)
+    }
+
+    /** SFX 종류별 pitch jitter 폭 (±). 0 이면 jitter 없음 (안정 톤). */
+    private fun jitterFor(effect: SfxKind): Float = when (effect) {
+        SfxKind.HandWin, SfxKind.PotSweep -> 0f
+        SfxKind.CardDeal -> 0.08f
+        SfxKind.ChipCommit, SfxKind.Check, SfxKind.Fold -> 0.06f
+        SfxKind.AllIn -> 0.04f
     }
 
     /** ViewModel.onCleared / 앱 종료 시 호출. */
