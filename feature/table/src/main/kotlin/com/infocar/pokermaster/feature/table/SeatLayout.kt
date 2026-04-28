@@ -11,6 +11,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -622,10 +623,15 @@ private fun AllInBadge() {
 
 @Composable
 private fun PayoutPulse(amount: Long) {
+    // Phase5: enter 시 아래에서 위로 떠오르며 등장, exit 시 위로 사라짐 — toast 풍 트레일.
     AnimatedVisibility(
         visible = amount > 0L,
-        enter = fadeIn(tween(500)) + scaleIn(tween(500), initialScale = 0.3f),
-        exit = fadeOut(tween(220)) + scaleOut(tween(220), targetScale = 0.6f),
+        enter = fadeIn(tween(500)) +
+            scaleIn(tween(500), initialScale = 0.3f) +
+            slideInVertically(tween(500)) { full -> full / 2 },
+        exit = fadeOut(tween(280)) +
+            scaleOut(tween(280), targetScale = 0.7f) +
+            slideOutVertically(tween(280)) { full -> -full / 3 },
     ) {
         PayoutBadge(amount = amount)
     }
