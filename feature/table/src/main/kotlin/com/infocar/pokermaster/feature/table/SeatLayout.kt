@@ -1,6 +1,7 @@
 package com.infocar.pokermaster.feature.table
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.animation.core.animateFloatAsState
@@ -634,6 +635,21 @@ private fun PayoutPulse(amount: Long) {
 private fun PayoutBadge(amount: Long) {
     // 승리 시 prominent 한 골드 펄스 — 펄스 알파로 시각 강조.
     val pulse = pulseFloat(initial = 0.85f, target = 1f, periodMs = 600, label = "payout-pulse")
+    // Phase2: 0 → amount 카운트업 (700ms FastOutSlow). reduceMotion 시 즉시 표시.
+    val reduceMotion = LocalReduceMotion.current
+    val progress = remember(amount) { Animatable(0f) }
+    LaunchedEffect(amount, reduceMotion) {
+        if (reduceMotion) {
+            progress.snapTo(1f)
+        } else {
+            progress.snapTo(0f)
+            progress.animateTo(
+                1f,
+                animationSpec = tween(durationMillis = 700, easing = FastOutSlowInEasing),
+            )
+        }
+    }
+    val displayAmount = (amount * progress.value).toLong()
     Surface(
         shape = RoundedCornerShape(10.dp),
         color = HangameColors.PotBg.copy(alpha = pulse),
@@ -647,7 +663,7 @@ private fun PayoutBadge(amount: Long) {
         ) {
             Text(text = "🪙", fontSize = 14.sp)
             Text(
-                text = "+${ChipFormat.format(amount)}",
+                text = "+${ChipFormat.format(displayAmount)}",
                 fontSize = 15.sp,
                 color = HangameColors.PotValue,
                 fontWeight = FontWeight.Black,

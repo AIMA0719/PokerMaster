@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -62,6 +63,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.infocar.pokermaster.core.model.Action
@@ -994,7 +996,27 @@ private fun WinnerBanner(
     }
     val isHiLoSplit = splitPot != null
 
-    val glow = pulseFloat(initial = 0.55f, target = 1f, periodMs = 850, label = "winner-glow")
+    // Phase2: 본인 승리 시 더 깊고 빠른 pulse (강조). NPC 승리는 기존 톤 유지.
+    val reduceMotion = LocalReduceMotion.current
+    val glow = pulseFloat(
+        initial = if (isHumanWinner) 0.4f else 0.55f,
+        target = 1f,
+        periodMs = if (isHumanWinner) 600 else 850,
+        label = "winner-glow",
+    )
+
+    // Phase2: 본인 승리 시 짧은 좌우 shake — 1.4초 동안 ±4dp 4회 wobble. reduceMotion 시 skip.
+    val shake = remember { Animatable(0f) }
+    LaunchedEffect(isHumanWinner, reduceMotion) {
+        if (isHumanWinner && !reduceMotion) {
+            // 0 → +1 → -1 → +1 → -1 → 0 wobble.
+            val keyframes = listOf(0f, 1f, -1f, 0.7f, -0.5f, 0f)
+            val stepMs = 90
+            for (k in keyframes) {
+                shake.animateTo(k, tween(durationMillis = stepMs, easing = FastOutSlowInEasing))
+            }
+        }
+    }
 
     // visible 을 false→true 로 토글해야 AnimatedVisibility 의 enter 트랜지션이 실제로 발생.
     var visible by remember { mutableStateOf(false) }
@@ -1005,7 +1027,7 @@ private fun WinnerBanner(
         enter = fadeIn(tween(420)) +
             scaleIn(tween(480, easing = FastOutSlowInEasing), initialScale = 0.55f),
         exit = fadeOut(tween(220)) + scaleOut(tween(220), targetScale = 0.85f),
-        modifier = modifier,
+        modifier = modifier.offset { IntOffset(x = (shake.value * 4.dp.toPx()).toInt(), y = 0) },
     ) {
         Surface(
             shape = RoundedCornerShape(18.dp),
