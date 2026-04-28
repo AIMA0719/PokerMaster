@@ -448,7 +448,10 @@ class TableViewModel private constructor(
             actions = currentHandActions.toList(),
             resultJson = runCatching {
                 historyJson.encodeToString(ShowdownSummary.serializer(), state.pendingShowdown!!)
-            }.getOrElse { "{}" },
+            }.getOrElse {
+                android.util.Log.w("TableVM", "ShowdownSummary encode failed for hand=${state.handIndex}", it)
+                "{}"
+            },
             winnerSeat = state.pendingShowdown?.payouts
                 ?.maxByOrNull { it.value }?.key,
             potSize = state.players.sumOf { it.committedThisHand },

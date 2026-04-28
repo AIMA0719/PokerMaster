@@ -37,13 +37,13 @@ class RoomHandHistoryRepository(
         dao.insert(record.toEntity(json))
 
     override suspend fun byId(id: Long): HandHistoryRecord? =
-        dao.byId(id)?.toRecord(json)
+        dao.byId(id)?.let { it.toRecordOrNull(json) }
 
     override fun observeRecent(limit: Int): Flow<List<HandHistoryRecord>> =
-        dao.observeTop(limit).map { list -> list.map { it.toRecord(json) } }
+        dao.observeTop(limit).map { list -> list.mapNotNull { it.toRecordOrNull(json) } }
 
     override fun observeByMode(mode: String, limit: Int): Flow<List<HandHistoryRecord>> =
-        dao.observeByMode(mode, limit).map { list -> list.map { it.toRecord(json) } }
+        dao.observeByMode(mode, limit).map { list -> list.mapNotNull { it.toRecordOrNull(json) } }
 
     override suspend fun count(): Int = dao.count()
     override suspend fun delete(id: Long) = dao.deleteById(id)
@@ -57,6 +57,17 @@ class RoomHandHistoryRepository(
         }
     }
 }
+
+/**
+ * Entity → Record 손상 내성 변환. 한 row 의 JSON 이 깨져도 list flow 전체가 죽지 않도록
+ * null 폴백. 손상 원인은 라이브러리 버전 변경 / 수동 DB 편집 / 부분 저장 등.
+ */
+internal fun HandHistoryEntity.toRecordOrNull(json: Json): HandHistoryRecord? =
+    runCatching { toRecord(json) }
+        .onFailure {
+            android.util.Log.w("HandHistoryRepository", "row id=$id corrupted — skipping", it)
+        }
+        .getOrNull()
 
 /** Entity → Record (JSON 역직렬화). 실패 시 예외 (저장된 데이터가 손상된 상태). */
 internal fun HandHistoryEntity.toRecord(json: Json): HandHistoryRecord = HandHistoryRecord(

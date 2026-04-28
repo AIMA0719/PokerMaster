@@ -35,23 +35,21 @@ class LlmAdvisorImpl(
         ctx: GameContext,
         result: DecisionResult,
         persona: Persona?,
-    ): LlmDecision? {
+    ): LlmDecision? = runCatching {
         // Ready 이고 모델 로드된 상태에서만 LLM 호출. 나머지는 null 로 폴백 유도.
-        val engine = session.engineIfReady() ?: return null
-        val handle = session.currentModel() ?: return null
-
+        // 폴백 계약(상단 KDoc): 어떤 예외든 null 로 흡수해 호출자(AiDriver) 가
+        // Persona-bias 경로로 즉시 대체 가능해야 한다. session/PromptFormatter/parse
+        // 어디서 throw 해도 동일.
+        val engine = session.engineIfReady() ?: return@runCatching null
+        val handle = session.currentModel() ?: return@runCatching null
         val prompt = PromptFormatter.formatContext(ctx, result, persona)
-        return runCatching {
-            engine.generateJson(
-                handle = handle,
-                prompt = prompt,
-                grammar = DecisionGrammar.DECISION,
-                config = config,
-            )
-        }
-            .getOrNull()
-            ?.let(LlmDecision::parse)
-    }
+        engine.generateJson(
+            handle = handle,
+            prompt = prompt,
+            grammar = DecisionGrammar.DECISION,
+            config = config,
+        ).let(LlmDecision::parse)
+    }.getOrNull()
 
     companion object {
         /** 포커 결정용 기본 샘플링 — 낮은 temperature 로 안정적 출력 우선. */
