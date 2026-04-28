@@ -1,6 +1,8 @@
 package com.infocar.pokermaster.feature.table.settings
 
+import androidx.annotation.RawRes
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -9,6 +11,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
@@ -269,13 +272,38 @@ fun SettingsScreen(
                     }
                 }
 
+                // 잔여9-법적: 법적 고지 섹션. 4개 항목 → 다이얼로그로 raw resource 표시.
+                var legalDialog by remember { mutableStateOf<Pair<Int, String>?>(null) }
+                SectionCard("법적 고지") {
+                    LegalRow("오픈소스 라이선스") {
+                        legalDialog = com.infocar.pokermaster.feature.table.R.raw.legal_open_source to "오픈소스 라이선스"
+                    }
+                    LegalRow("개인정보 처리방침") {
+                        legalDialog = com.infocar.pokermaster.feature.table.R.raw.legal_privacy to "개인정보 처리방침"
+                    }
+                    LegalRow("이용약관") {
+                        legalDialog = com.infocar.pokermaster.feature.table.R.raw.legal_terms to "이용약관"
+                    }
+                    LegalRow("책임 있는 게임") {
+                        legalDialog = com.infocar.pokermaster.feature.table.R.raw.legal_responsible_gaming to "책임 있는 게임"
+                    }
+                }
+                legalDialog?.let { (resId, title) ->
+                    LegalDialog(resId = resId, title = title, onDismiss = { legalDialog = null })
+                }
+
                 SectionCard("정보") {
                     LabeledRow(label = "앱 버전", value = versionName)
                     LabeledRow(label = "LLM 런타임", value = "llama.cpp b8870 (static)")
                     Text(
-                        "이 앱은 Meta Llama 3.2 모델을 사용합니다 (Llama Community License).",
+                        "Built with Llama — Meta Llama 3.2 1B-Instruct (Q4_K_M).",
                         style = MaterialTheme.typography.bodySmall,
                         color = HangameColors.TextSecondary,
+                    )
+                    Text(
+                        "문의: tech.infocar@gmail.com",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = HangameColors.TextMuted,
                     )
                 }
 
@@ -373,4 +401,47 @@ private fun LabeledRow(label: String, value: String) {
         Text(label, style = MaterialTheme.typography.bodyMedium, color = HangameColors.TextSecondary)
         Text(value, style = MaterialTheme.typography.bodyMedium, color = HangameColors.TextChip)
     }
+}
+
+@Composable
+private fun LegalRow(label: String, onClick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(vertical = 10.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(label, style = MaterialTheme.typography.bodyLarge, color = HangameColors.TextPrimary)
+        Text("›", style = MaterialTheme.typography.titleMedium, color = HangameColors.TextSecondary)
+    }
+}
+
+@Composable
+private fun LegalDialog(
+    @RawRes resId: Int,
+    title: String,
+    onDismiss: () -> Unit,
+) {
+    val context = LocalContext.current
+    val text = remember(resId) {
+        context.resources.openRawResource(resId).bufferedReader().use { it.readText() }
+    }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title, fontWeight = FontWeight.Black) },
+        text = {
+            Box(modifier = Modifier.heightIn(max = 480.dp)) {
+                Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                    Text(
+                        text,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = HangameColors.TextPrimary,
+                    )
+                }
+            }
+        },
+        confirmButton = { Button(onClick = onDismiss) { Text("닫기") } },
+    )
 }

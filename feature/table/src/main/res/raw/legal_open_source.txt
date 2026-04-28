@@ -1,0 +1,69 @@
+PokerMaster 오픈소스 라이선스
+=============================
+
+본 앱은 다음 오픈소스 소프트웨어를 사용합니다.
+
+[1] Apache License 2.0
+- AndroidX (core-ktx, lifecycle, compose, navigation, room, datastore, work) — Google
+- Hilt (dagger-hilt) — Google
+- Kotlin Standard Library / kotlinx.coroutines / kotlinx.serialization — JetBrains
+
+전체 원문: https://www.apache.org/licenses/LICENSE-2.0
+요약: 자유롭게 사용·수정·배포·상업적 이용 가능. 라이선스 사본 포함 의무. 무보증.
+
+----------------------------------------
+
+[2] Bouncy Castle Licence (BSD-style)
+- Bouncy Castle (Ed25519 매니페스트 서명 검증)
+
+Copyright (c) 2000-2024 The Legion of the Bouncy Castle Inc.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of
+this software and associated documentation files (the "Software"), to deal in
+the Software without restriction, including without limitation the rights to
+use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
+the Software, and to permit persons to whom the Software is furnished to do so,
+subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND.
+
+----------------------------------------
+
+[3] MIT License
+- llama.cpp (build b8870, static linkage, arm64-v8a) — The ggml authors
+  온디바이스 LLM 추론 엔진.
+
+Copyright (c) 2023-2024 The ggml authors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of
+this software... THE SOFTWARE IS PROVIDED "AS IS".
+
+원본: https://github.com/ggml-org/llama.cpp
+
+----------------------------------------
+
+[4] Llama 3.2 Community License
+- Meta Llama 3.2 1B-Instruct (Q4_K_M 양자화) — Meta
+
+요약:
+  - 비상업/상업 모두 사용 가능 (월 7억 활성 사용자 임계 이하).
+  - "Built with Llama" 표기 의무 (앱 정보/UI 에 명시).
+  - 안전 사용 의무 (Llama AUP 준수).
+  - 모델 가중치 재배포 안 함 — 사용자가 1차 다운로드 (HuggingFace public CDN).
+
+전체: https://llama.meta.com/llama3_2/license/
+사용 정책: https://llama.meta.com/llama3_2/use-policy/
+
+----------------------------------------
+
+[5] CC0 Public Domain
+- Kenney Casino Audio (효과음 자산 일부)
+
+원본: https://kenney.nl/assets
+
+----------------------------------------
+
+본 앱의 전체 라이선스 텍스트는 GitHub 저장소의 licenses/ 디렉토리에서 확인 가능합니다.

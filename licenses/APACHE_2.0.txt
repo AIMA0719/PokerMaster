@@ -1,0 +1,21 @@
+Apache License
+Version 2.0, January 2004
+http://www.apache.org/licenses/
+
+본 라이선스는 PokerMaster 가 의존하는 다음 라이브러리들에 동일하게 적용됩니다.
+
+- AndroidX (core-ktx, lifecycle, compose, navigation, room, datastore, work) — Google
+- Hilt (dagger-hilt) — Google
+- Kotlin Standard Library / kotlinx.coroutines / kotlinx.serialization — JetBrains
+
+원문 라이선스 전체:
+https://www.apache.org/licenses/LICENSE-2.0
+
+요약:
+- 자유롭게 사용·수정·배포·상업적 이용 가능.
+- 라이선스 사본 및 NOTICE 파일 (있을 경우) 포함 의무.
+- 변경 사항 명시 의무 (수정 시).
+- 무보증 (AS IS).
+
+전체 파일을 영문으로 보려면:
+https://www.apache.org/licenses/LICENSE-2.0.txt

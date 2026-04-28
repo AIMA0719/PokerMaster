@@ -1,0 +1,23 @@
+LLAMA 3.2 COMMUNITY LICENSE AGREEMENT
+
+본 앱은 Meta 의 Llama 3.2 1B-Instruct 모델 (Q4_K_M 양자화) 을 온디바이스 추론에
+사용합니다. 모델 가중치는 Llama 3.2 Community License Agreement 의 적용을
+받습니다.
+
+요약:
+- 비상업/상업 모두 사용 가능 (월 7억 활성 사용자 임계 이하).
+- "Built with Llama" 표기 의무 (앱 정보/UI 에 명시).
+- 안전 사용 의무 (LlamaUseAcceptableUsePolicy 준수).
+- 재배포 시 동일 조건 + Llama 3.2 라이선스 사본 포함 의무.
+
+전체 라이선스 원문:
+https://llama.meta.com/llama3_2/license/
+
+수용 가능한 사용 정책 (AUP):
+https://llama.meta.com/llama3_2/use-policy/
+
+PokerMaster 사용 형태:
+- 모델 로드: 사용자 단말 로컬에 다운로드, 외부 서버 전송 없음.
+- 추론: 포커 NPC 행동 결정 (advice + JSON action).
+- 모델 가중치 재배포 안 함 — 사용자가 1차 다운로드 (HuggingFace public CDN).
+- "Built with Llama" 표기 — 설정 → 정보 섹션.
