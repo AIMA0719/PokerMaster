@@ -10,7 +10,7 @@ import androidx.room.PrimaryKey
  * - [lastCheckInEpochDay]: `LocalDate.toEpochDay()`. 0 이면 최초 진입 전.
  * - [streakDays]: 연속 체크인 일수. 오늘 - lastCheckInEpochDay == 1 이면 streak+1,
  *   2 이상이면 streak 리셋 (=1 로 재시작).
- * - [totalEarnedLifetime]: 획득 누적 칩 (보너스/정산 합). 통계/도전과제용.
+ * - [totalEarnedLifetime]: 획득 누적 칩 (보너스/테이블 순이익 합). 통계/도전과제용.
  */
 @Entity(tableName = "wallet")
 data class WalletEntity(

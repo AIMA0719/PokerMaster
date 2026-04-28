@@ -1,5 +1,6 @@
 package com.infocar.pokermaster.feature.table
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -139,6 +140,8 @@ fun TableScreen(
     val gameOver by viewModel.gameOver.collectAsState()
     val autoNextCountdown by viewModel.autoNextCountdown.collectAsState()
     val lastActions by viewModel.lastActions.collectAsState()
+    val exitRequested by viewModel.exitRequested.collectAsState()
+    val buyInRejected by viewModel.buyInRejected.collectAsState()
 
     // 3초 프리딜 — 카드 / 액션바 / NPC tick 까지 함께 막아 준비 시간 확보.
     var dealReady by remember { mutableStateOf(false) }
@@ -155,13 +158,26 @@ fun TableScreen(
     }
 
     val exitScope = rememberCoroutineScope()
+    var exitInProgress by remember { mutableStateOf(false) }
     // wallet 잔고 갱신을 보장한 뒤 로비 복귀하는 단일 wrapper. TableContent 의 X/메뉴 나가기,
     // LaunchedEffect(gameOver) 모두 이 함수만 호출하면 settled flag 로 중복 settle 방지됨.
     val onExitSettled: () -> Unit = {
-        exitScope.launch {
-            viewModel.settleAndCloseAwait()
-            onExit()
+        if (!exitInProgress) {
+            exitInProgress = true
+            exitScope.launch {
+                viewModel.settleAndCloseAwait()
+                onExit()
+            }
         }
+    }
+    val onExitRequested: () -> Unit = {
+        if (viewModel.requestExitAfterHand()) {
+            onExitSettled()
+        }
+    }
+
+    BackHandler {
+        onExitRequested()
     }
 
     // 게임 오버 시 정산 애니 2초 → settle 동기 await → 로비 복귀.
@@ -169,6 +185,17 @@ fun TableScreen(
         if (gameOver != null) {
             delay(2_000L)
             onExitSettled()
+        }
+    }
+    LaunchedEffect(exitRequested, state.pendingShowdown, gameOver) {
+        if (exitRequested && (state.pendingShowdown != null || gameOver != null)) {
+            delay(1_200L)
+            onExitSettled()
+        }
+    }
+    LaunchedEffect(buyInRejected) {
+        if (buyInRejected != null) {
+            onExit()
         }
     }
 
@@ -328,7 +355,8 @@ fun TableScreen(
             onDeclare = viewModel::onDeclare,
             onNextHand = viewModel::onNextHand,
             onSurrender = viewModel::onSurrender,
-            onExit = onExitSettled,
+            onExit = onExitRequested,
+            exitRequested = exitRequested,
             guideEnabled = guideSettings.guideModeEnabled,
             onToggleGuide = onToggleGuide,
             autoNextCountdown = autoNextCountdown,
@@ -383,6 +411,7 @@ internal fun TableContent(
     autoNextCountdown: Int? = null,
     gameOver: GameOverInfo? = null,
     lastActions: Map<Int, String> = emptyMap(),
+    exitRequested: Boolean = false,
     /** 진입 직후 3초 딜러 준비 대기. false 면 액션바/Waiting 둘 다 숨긴다. */
     dealReady: Boolean = true,
 ) {
@@ -467,17 +496,33 @@ internal fun TableContent(
                         onDismiss = { menuOpen = false },
                         onSurrender = onSurrender,
                         onExit = onExit,
+                        exitRequested = exitRequested,
                         guideEnabled = guideEnabled,
                         onToggleGuide = onToggleGuide,
                     )
                 }
-                IconButton(onClick = onExit) {
+                IconButton(
+                    onClick = onExit,
+                    enabled = !exitRequested,
+                ) {
                     Icon(
                         Icons.Default.Close,
-                        contentDescription = "나가기",
-                        tint = HangameColors.TextSecondary,
+                        contentDescription = if (exitRequested) {
+                            stringResource(id = R.string.exit_queued)
+                        } else {
+                            stringResource(id = R.string.menu_exit)
+                        },
+                        tint = if (exitRequested) HangameColors.TextMuted else HangameColors.TextSecondary,
                     )
                 }
+            }
+
+            if (exitRequested) {
+                ExitQueuedBadge(
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .padding(top = 10.dp),
+                )
             }
 
             // 6) 하단 액션바 / declare 시트 분기 — 쇼다운 / 프리딜 대기 동안에는 둘 다 숨김.
@@ -955,6 +1000,26 @@ private fun WaitingForNpc(modifier: Modifier = Modifier) {
             text = stringResource(id = R.string.waiting_for_npc),
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
             style = MaterialTheme.typography.labelLarge,
+        )
+    }
+}
+
+@Composable
+private fun ExitQueuedBadge(modifier: Modifier = Modifier) {
+    Surface(
+        modifier = modifier,
+        shape = RoundedCornerShape(18.dp),
+        color = HangameColors.HeaderBgRight.copy(alpha = 0.92f),
+        border = BorderStroke(1.dp, HangameColors.PotValue.copy(alpha = 0.55f)),
+        shadowElevation = 8.dp,
+    ) {
+        Text(
+            text = stringResource(id = R.string.exit_queued),
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp),
+            fontSize = 12.sp,
+            color = HangameColors.PotValue,
+            fontWeight = FontWeight.Bold,
+            maxLines = 1,
         )
     }
 }

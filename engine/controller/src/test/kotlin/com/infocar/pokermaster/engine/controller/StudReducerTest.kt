@@ -11,6 +11,7 @@ import com.infocar.pokermaster.core.model.Rank
 import com.infocar.pokermaster.core.model.Street
 import com.infocar.pokermaster.core.model.Suit
 import com.infocar.pokermaster.core.model.TableConfig
+import com.infocar.pokermaster.engine.rules.HandEvaluatorHiLo
 import com.infocar.pokermaster.engine.rules.Rng
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
@@ -486,6 +487,53 @@ class StudReducerTest {
         // 칩 보존
         val totalAfter = s.players.sumOf { it.chips }
         assertThat(totalAfter).isEqualTo(totalBefore)
+    }
+
+    @Test fun hilo_same_seat_winning_hi_and_lo_marks_scoop_for_ui() {
+        val cfg = config.copy(mode = GameMode.SEVEN_STUD_HI_LO, seats = 2, ante = 10L, bringIn = 25L)
+        var declareState: com.infocar.pokermaster.core.model.GameState? = null
+        var scoopSeat: Int? = null
+        var rng: Rng? = null
+
+        for (nonce in 1L..300L) {
+            val r = rngOf(nonce)
+            val start = StudReducer.startHand(
+                config = cfg,
+                players = players(10_000, 10_000),
+                prevBtnSeat = null,
+                rng = r,
+                handIndex = 1L,
+                startingVersion = 0L,
+            )
+            val candidate = runUntilDeclare(start, r)
+            if (candidate.street != Street.DECLARE) continue
+
+            val live = candidate.players.filter { !it.folded }
+            val bestHiSeat = live.maxBy { HandEvaluatorHiLo.evaluateHigh(it.holeCards + it.upCards) }.seat
+            val bestLoSeat = live.minBy { HandEvaluatorHiLo.evaluateLow(it.holeCards + it.upCards) }.seat
+            if (bestHiSeat == bestLoSeat) {
+                declareState = candidate
+                scoopSeat = bestHiSeat
+                rng = r
+                break
+            }
+        }
+
+        var s = checkNotNull(declareState) { "No deterministic Hi-Lo scoop fixture found" }
+        val targetScoopSeat = checkNotNull(scoopSeat)
+        val r = checkNotNull(rng)
+
+        while (s.street == Street.DECLARE) {
+            val seat = s.toActSeat!!
+            val declaration = if (seat == targetScoopSeat) Declaration.SWING else Declaration.HIGH
+            s = StudReducer.act(s, seat, Action(ActionType.DECLARE, declaration = declaration), r)
+        }
+
+        assertThat(s.pendingShowdown).isNotNull()
+        val mainPot = s.pendingShowdown!!.pots.first()
+        assertThat(mainPot.hiWinnerSeats).containsExactly(targetScoopSeat)
+        assertThat(mainPot.loWinnerSeats).containsExactly(targetScoopSeat)
+        assertThat(mainPot.scoopWinnerSeats).containsExactly(targetScoopSeat)
     }
 
     // -------------------------------------------------- 7th street is dealt down

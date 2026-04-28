@@ -75,6 +75,7 @@ fun LobbyScreen(
     val nickname by viewModel.nickname.collectAsState()
     var selectedSeats by rememberSaveable { mutableIntStateOf(2) }
     var showNicknameDialog by remember { mutableStateOf(false) }
+    var enteringTable by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) { viewModel.onEntered() }
 
@@ -147,6 +148,7 @@ fun LobbyScreen(
                     // 본인 buy-in = wallet 잔고 전체. wallet > 0 면 진입 가능.
                     val hasChips = wallet.balanceChips > 0L
                     val supported = true // 모든 GameMode 정식 지원 (HOLDEM_NL / SEVEN_STUD / SEVEN_STUD_HI_LO)
+                    val canEnter = hasChips && supported && !enteringTable
                     // Phase6: 진입 시 staggered enter (index * 80ms delay) — cinematic 첫 등장.
                     var visible by remember { mutableStateOf(false) }
                     LaunchedEffect(Unit) {
@@ -160,14 +162,19 @@ fun LobbyScreen(
                     ) {
                         ModeCard(
                             mode = mode,
-                            enabled = hasChips && supported,
+                            enabled = canEnter,
                             reasonIfDisabled = when {
                                 !supported -> "준비 중 (다음 업데이트)"
                                 !hasChips -> "잔고 부족 — 보너스 받고 다시 시도하세요."
                                 else -> null
                             },
                             // 본인 buy-in = wallet 잔고 전체. NPC 는 ViewModel 에서 5만 fixed.
-                            onClick = { onSelectMode(mode, selectedSeats, wallet.balanceChips) },
+                            onClick = {
+                                if (!enteringTable) {
+                                    enteringTable = true
+                                    onSelectMode(mode, selectedSeats, wallet.balanceChips)
+                                }
+                            },
                         )
                     }
                     Spacer(Modifier.height(12.dp))

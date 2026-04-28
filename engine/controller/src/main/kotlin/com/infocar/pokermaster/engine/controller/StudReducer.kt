@@ -570,6 +570,16 @@ object StudReducer {
                     index = idx,
                     hiWinnerSeats = hiWinners,
                     loWinnerSeats = loWinners,
+                    scoopWinnerSeats = if (
+                        isHiLo &&
+                        hiWinners.size == 1 &&
+                        loWinners.size == 1 &&
+                        hiWinners == loWinners
+                    ) {
+                        hiWinners
+                    } else {
+                        emptySet()
+                    },
                 )
             }
             handInfos = live.associate { p ->

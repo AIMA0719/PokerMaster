@@ -91,6 +91,14 @@ class TableViewModel private constructor(
     private val _autoNextCountdown = MutableStateFlow<Int?>(null)
     val autoNextCountdown: StateFlow<Int?> = _autoNextCountdown.asStateFlow()
 
+    /** 사용자가 테이블 나가기를 눌렀고, 현재 핸드 종료 후 정산/복귀해야 하는 상태. */
+    private val _exitRequested = MutableStateFlow(false)
+    val exitRequested: StateFlow<Boolean> = _exitRequested.asStateFlow()
+
+    /** 바이인이 거절되면 테이블 세션은 지갑 정산/전적 반영 없이 즉시 종료해야 한다. */
+    private val _buyInRejected = MutableStateFlow<BuyInResult.Insufficient?>(null)
+    val buyInRejected: StateFlow<BuyInResult.Insufficient?> = _buyInRejected.asStateFlow()
+
     /** 좌석별 마지막 액션 라벨 — 2초 후 자동 소멸. */
     private val _lastActions = MutableStateFlow<Map<Int, String>>(emptyMap())
     val lastActions: StateFlow<Map<Int, String>> = _lastActions.asStateFlow()
@@ -111,6 +119,10 @@ class TableViewModel private constructor(
 
     // M6-C: 마지막 settle 중복 방지 플래그.
     private var settled: Boolean = false
+    private val humanSessionBuyIn: Long =
+        initialPlayers.firstOrNull { it.isHuman }?.chips?.coerceAtLeast(0L) ?: 0L
+    private var buyInJob: Job? = null
+    private var buyInAccepted: Boolean = walletRepo == null || humanSessionBuyIn <= 0L
 
     /**
      * 감사 결과 #2 fix: 사람 액션 in-flight 가드. ActionBar/DeclareSheet 의 AtomicLong throttle
@@ -143,9 +155,29 @@ class TableViewModel private constructor(
         }
         // 테이블 세션 시작 시 wallet 에서 본인 buy-in 만큼 차감 (사용자 룰: 본인 chips=wallet 전체).
         walletRepo?.let { repo ->
-            val humanStartChips = initialPlayers.firstOrNull { it.isHuman }?.chips ?: 0L
-            if (humanStartChips > 0L) {
-                viewModelScope.launch { repo.buyIn(humanStartChips) }
+            if (humanSessionBuyIn > 0L) {
+                buyInJob = viewModelScope.launch {
+                    when (val result = runCatching { repo.buyIn(humanSessionBuyIn) }.getOrNull()) {
+                        is BuyInResult.Success -> {
+                            buyInAccepted = true
+                        }
+                        is BuyInResult.Insufficient -> {
+                            buyInAccepted = false
+                            _exitRequested.value = true
+                            _buyInRejected.value = result
+                            cancelAutoNext()
+                        }
+                        null -> {
+                            buyInAccepted = false
+                            _exitRequested.value = true
+                            _buyInRejected.value = BuyInResult.Insufficient(
+                                balance = 0L,
+                                required = humanSessionBuyIn,
+                            )
+                            cancelAutoNext()
+                        }
+                    }
+                }
             }
         }
     }
@@ -158,10 +190,12 @@ class TableViewModel private constructor(
         if (settled) return
         settled = true
         val repo = walletRepo ?: return
-        val scope = historyScope ?: return
+        val scope = historyScope ?: viewModelScope
         val finalChips = _state.value.players.firstOrNull { it.isHuman }?.chips ?: 0L
         scope.launch(kotlinx.coroutines.NonCancellable) {
-            runCatching { repo.settle(finalChips) }
+            buyInJob?.join()
+            if (!buyInAccepted) return@launch
+            runCatching { repo.settle(finalChips, initialBuyIn = humanSessionBuyIn) }
                 .onFailure { android.util.Log.w("TableVM", "settle async failed", it) }
         }
     }
@@ -177,7 +211,9 @@ class TableViewModel private constructor(
         val finalChips = _state.value.players.firstOrNull { it.isHuman }?.chips ?: 0L
         runCatching {
             kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
-                repo.settle(finalChips)
+                buyInJob?.join()
+                if (!buyInAccepted) return@withContext
+                repo.settle(finalChips, initialBuyIn = humanSessionBuyIn)
             }
         }.onFailure { android.util.Log.w("TableVM", "settle await failed", it) }
     }
@@ -241,6 +277,7 @@ class TableViewModel private constructor(
     }
 
     fun onNextHand() {
+        if (_exitRequested.value) return
         cancelAutoNext()
         _lastActions.value = emptyMap()
         val s = _state.value
@@ -276,6 +313,18 @@ class TableViewModel private constructor(
         val p = s.players.firstOrNull { it.seat == seat } ?: return
         if (!p.isHuman) return
         onHumanAction(Action(ActionType.FOLD))
+    }
+
+    /**
+     * 나가기 요청은 진행 중 핸드를 중간 정산하지 않고 예약한다.
+     *
+     * @return 이미 핸드가 끝난 상태라 즉시 로비로 돌아가도 되면 true.
+     */
+    fun requestExitAfterHand(): Boolean {
+        _exitRequested.value = true
+        val canExitNow = _state.value.pendingShowdown != null || _gameOver.value != null
+        if (canExitNow) cancelAutoNext()
+        return canExitNow
     }
 
     // ---------------------------------------------------------------- Resume
@@ -350,6 +399,7 @@ class TableViewModel private constructor(
 
     /** 쇼다운 후 자동 다음 핸드 카운트다운 시작. */
     private fun startAutoNextCountdown() {
+        if (_exitRequested.value) return
         cancelAutoNext()
         autoNextJob = viewModelScope.launch {
             for (remaining in autoNextDelaySeconds downTo 1) {
@@ -444,8 +494,11 @@ class TableViewModel private constructor(
         if (state.handIndex == lastRecordedHandIndex) return
         lastRecordedHandIndex = state.handIndex
 
-        // 자동 다음 핸드 카운트다운 시작.
-        startAutoNextCountdown()
+        // 나가기 예약 중이면 다음 핸드로 넘어가지 않고 UI가 정산/복귀한다.
+        if (_exitRequested.value) cancelAutoNext() else startAutoNextCountdown()
+
+        // 바이인이 실제로 차감되지 않은 세션은 지갑/미션/ELO에 영향을 주면 안 된다.
+        if (walletRepo != null && !buyInAccepted) return
 
         val repo = historyRepo ?: return
         val scope = historyScope ?: return

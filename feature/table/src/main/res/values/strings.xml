@@ -40,6 +40,7 @@
     <string name="menu_help">도움말</string>
     <string name="menu_surrender">핸드 항복</string>
     <string name="menu_exit">테이블 나가기</string>
+    <string name="exit_queued">나가기 예약됨</string>
     <string name="waiting_for_npc">상대 플레이어가 생각 중…</string>
     <string name="prep_dealing">딜링 준비 중…</string>
     <string name="winner_you_win">YOU WIN!</string>

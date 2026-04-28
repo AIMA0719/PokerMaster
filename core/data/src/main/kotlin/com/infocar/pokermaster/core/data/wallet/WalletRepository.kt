@@ -2,6 +2,8 @@ package com.infocar.pokermaster.core.data.wallet
 
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.time.LocalDate
 
 /**
@@ -28,9 +30,10 @@ interface WalletRepository {
 
     /**
      * 테이블 정산. [finalChips] 는 인간 플레이어 좌석의 최종 보유 chips.
-     * buy-in 이 이미 차감되었으므로 finalChips 를 그대로 더하면 된다 (게임 결과 = finalChips - stake).
+     * buy-in 이 이미 차감되었으므로 balance 에는 finalChips 를 그대로 더한다.
+     * totalEarnedLifetime 은 티어 기준이므로 buy-in 회수분을 제외한 순이익만 더한다.
      */
-    suspend fun settle(finalChips: Long)
+    suspend fun settle(finalChips: Long, initialBuyIn: Long = 0L)
 
     /**
      * 파산 리셋. balance 를 [STARTING_BANKROLL] 로 되돌린다. streak/total 은 유지.
@@ -114,34 +117,40 @@ class RoomWalletRepository(
     private val dao: WalletDao,
 ) : WalletRepository {
 
+    private val writeMutex = Mutex()
+
     override fun observe(): Flow<WalletState> =
         dao.observe().map { it?.toState() ?: initialState() }
 
     override suspend fun getState(): WalletState =
-        dao.get()?.toState() ?: initialState().also { seedIfMissing() }
+        writeMutex.withLock { currentOrSeeded().toState() }
 
-    override suspend fun buyIn(stake: Long): BuyInResult {
+    override suspend fun buyIn(stake: Long): BuyInResult = writeMutex.withLock {
+        if (stake <= 0L) {
+            val current = currentOrSeeded()
+            return@withLock BuyInResult.Success(current.balanceChips)
+        }
         val current = currentOrSeeded()
         if (current.balanceChips < stake) {
-            return BuyInResult.Insufficient(current.balanceChips, stake)
+            return@withLock BuyInResult.Insufficient(current.balanceChips, stake)
         }
         val next = current.copy(balanceChips = current.balanceChips - stake)
         dao.upsert(next)
-        return BuyInResult.Success(next.balanceChips)
+        BuyInResult.Success(next.balanceChips)
     }
 
-    override suspend fun settle(finalChips: Long) {
+    override suspend fun settle(finalChips: Long, initialBuyIn: Long) = writeMutex.withLock {
         val current = currentOrSeeded()
-        // 정산 금액이 chip wallet 정책상 음수(buy-in < final) 만 아니면 그냥 가산.
         val credited = finalChips.coerceAtLeast(0L)
+        val netEarned = (credited - initialBuyIn.coerceAtLeast(0L)).coerceAtLeast(0L)
         val next = current.copy(
             balanceChips = current.balanceChips + credited,
-            totalEarnedLifetime = current.totalEarnedLifetime + credited,
+            totalEarnedLifetime = current.totalEarnedLifetime + netEarned,
         )
         dao.upsert(next)
     }
 
-    override suspend fun claimMissionReward(amount: Long) {
+    override suspend fun claimMissionReward(amount: Long) = writeMutex.withLock {
         if (amount <= 0L) return
         val current = currentOrSeeded()
         val next = current.copy(
@@ -151,7 +160,7 @@ class RoomWalletRepository(
         dao.upsert(next)
     }
 
-    override suspend fun applyHandOutcome(outcome: HandOutcome, opponentAvgElo: Int) {
+    override suspend fun applyHandOutcome(outcome: HandOutcome, opponentAvgElo: Int) = writeMutex.withLock {
         val current = currentOrSeeded()
         val actual = when (outcome) {
             HandOutcome.WIN -> 1.0
@@ -167,17 +176,17 @@ class RoomWalletRepository(
         dao.upsert(current.copy(elo = newElo))
     }
 
-    override suspend fun resetBankrupt() {
+    override suspend fun resetBankrupt() = writeMutex.withLock {
         val current = currentOrSeeded()
         val next = current.copy(balanceChips = WalletRepository.STARTING_BANKROLL)
         dao.upsert(next)
     }
 
-    override suspend fun recordCheckIn(today: LocalDate): CheckInResult {
+    override suspend fun recordCheckIn(today: LocalDate): CheckInResult = writeMutex.withLock {
         val current = currentOrSeeded()
         val todayEpoch = today.toEpochDay()
         if (current.lastCheckInEpochDay == todayEpoch) {
-            return CheckInResult.AlreadyCheckedIn(current.streakDays)
+            return@withLock CheckInResult.AlreadyCheckedIn(current.streakDays)
         }
         val newStreak = if (todayEpoch - current.lastCheckInEpochDay == 1L) {
             current.streakDays + 1
@@ -192,14 +201,10 @@ class RoomWalletRepository(
             totalEarnedLifetime = current.totalEarnedLifetime + bonus,
         )
         dao.upsert(next)
-        return CheckInResult.Granted(bonus = bonus, newStreak = newStreak, newBalance = next.balanceChips)
+        CheckInResult.Granted(bonus = bonus, newStreak = newStreak, newBalance = next.balanceChips)
     }
 
     // ------ helpers ------
-
-    private suspend fun seedIfMissing() {
-        if (dao.get() == null) dao.upsert(seedEntity())
-    }
 
     private suspend fun currentOrSeeded(): WalletEntity {
         val existing = dao.get()

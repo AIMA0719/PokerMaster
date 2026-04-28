@@ -33,6 +33,7 @@ fun InGameMenuDropdown(
     onDismiss: () -> Unit,
     onSurrender: () -> Unit,
     onExit: () -> Unit,
+    exitRequested: Boolean = false,
     guideEnabled: Boolean = true,
     onToggleGuide: () -> Unit = {},
 ) {
@@ -105,11 +106,14 @@ fun InGameMenuDropdown(
         DropdownMenuItem(
             text = {
                 Text(
-                    text = stringResource(id = R.string.menu_exit),
+                    text = stringResource(
+                        id = if (exitRequested) R.string.exit_queued else R.string.menu_exit,
+                    ),
                     style = MaterialTheme.typography.bodyLarge,
                 )
             },
             onClick = { onDismiss(); onExit() },
+            enabled = !exitRequested,
             leadingIcon = {
                 Icon(
                     imageVector = Icons.AutoMirrored.Filled.ExitToApp,
