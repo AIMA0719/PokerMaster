@@ -26,14 +26,18 @@ class MissionRepository @Inject constructor(
         PREF_NAME, Context.MODE_PRIVATE,
     )
 
-    fun lastClaimedEpochDay(): Long = prefs.getLong(KEY_LAST_CLAIMED, 0L)
+    /** 미션 id 별 마지막 보상 수령 epoch day. 기본 0L (미수령). */
+    fun lastClaimedEpochDay(missionId: String): Long =
+        prefs.getLong(keyFor(missionId), 0L)
 
-    fun saveClaimed(epochDay: Long) {
-        prefs.edit { putLong(KEY_LAST_CLAIMED, epochDay) }
+    fun saveClaimed(missionId: String, epochDay: Long) {
+        prefs.edit { putLong(keyFor(missionId), epochDay) }
     }
+
+    private fun keyFor(missionId: String): String = "$KEY_LAST_CLAIMED_PREFIX$missionId"
 
     companion object {
         private const val PREF_NAME = "poker_mission"
-        private const val KEY_LAST_CLAIMED = "last_claimed_epoch_day"
+        private const val KEY_LAST_CLAIMED_PREFIX = "last_claimed_epoch_day_"
     }
 }

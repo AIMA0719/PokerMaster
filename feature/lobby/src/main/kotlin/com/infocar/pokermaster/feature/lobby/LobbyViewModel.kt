@@ -55,9 +55,9 @@ class LobbyViewModel @Inject constructor(
     private val _events = MutableStateFlow<LobbyEvent?>(null)
     val events: StateFlow<LobbyEvent?> = _events.asStateFlow()
 
-    /** 잔여9-도전과제: 일일 미션 상태. onEntered + claim 시 갱신. */
-    private val _mission = MutableStateFlow(MissionState())
-    val mission: StateFlow<MissionState> = _mission.asStateFlow()
+    /** Phase B: 일일 미션 3종 상태. onEntered + claim 시 갱신. */
+    private val _missions = MutableStateFlow(MissionsState())
+    val missions: StateFlow<MissionsState> = _missions.asStateFlow()
 
     /**
      * 화면 최초 진입 시 1회 호출 (hilt VM 기본 스코프) — daily check-in + 파산 감지.
@@ -91,18 +91,28 @@ class LobbyViewModel @Inject constructor(
     /** 미션 상태 재조회. claim 직후 / lobby onEntered 에서 호출. */
     private fun refreshMission() = viewModelScope.launch {
         val today = LocalDate.now()
+        val todayEpoch = today.toEpochDay()
         val sinceMs = today.atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
         val handsToday = runCatching { historyRepo.countSince(sinceMs) }.getOrNull() ?: 0
-        val claimed = missionRepo.lastClaimedEpochDay() == today.toEpochDay()
-        _mission.value = MissionState(todayHands = handsToday, claimed = claimed)
+        val updated = MissionsState.DEFAULT_DEFINITIONS.map { def ->
+            Mission(
+                id = def.id,
+                label = def.label,
+                targetHands = def.targetHands,
+                rewardAmount = def.rewardAmount,
+                claimed = missionRepo.lastClaimedEpochDay(def.id) == todayEpoch,
+            )
+        }
+        _missions.value = MissionsState(todayHands = handsToday, missions = updated)
     }
 
-    fun claimMissionReward() = viewModelScope.launch {
-        val current = _mission.value
-        if (!current.canClaim) return@launch
+    fun claimMission(missionId: String) = viewModelScope.launch {
+        val state = _missions.value
+        val target = state.missions.find { it.id == missionId } ?: return@launch
+        if (!target.canClaim(state.todayHands)) return@launch
         runCatching {
-            walletRepo.claimMissionReward(current.rewardAmount)
-            missionRepo.saveClaimed(LocalDate.now().toEpochDay())
+            walletRepo.claimMissionReward(target.rewardAmount)
+            missionRepo.saveClaimed(missionId, LocalDate.now().toEpochDay())
         }.onFailure {
             android.util.Log.w("LobbyVM", "mission claim failed", it)
             _events.value = LobbyEvent.Error("보상 적립에 실패했어요.")
@@ -135,23 +145,45 @@ sealed interface LobbyEvent {
 }
 
 /**
- * 일일 미션 상태. v1: "오늘 5핸드 플레이" 단일 미션, 보상 1k chips, 일 1회.
- * 향후 미션 풀 확장 시 sealed class 또는 List<Mission> 으로 전환.
+ * 일일 미션 단건. todayHands 외부 입력 — Mission 자체는 정의 + 수령 여부만 보유.
+ * canClaim/progress 는 현재 todayHands 와 결합한 view-model 함수.
  */
-data class MissionState(
-    val todayHands: Int = 0,
-    val targetHands: Int = TARGET_HANDS,
-    val rewardAmount: Long = REWARD_CHIPS,
-    val claimed: Boolean = false,
+data class Mission(
+    val id: String,
+    val label: String,
+    val targetHands: Int,
+    val rewardAmount: Long,
+    val claimed: Boolean,
 ) {
-    val progress: Float
-        get() = (todayHands.toFloat() / targetHands).coerceAtMost(1f)
-    val canClaim: Boolean
-        get() = todayHands >= targetHands && !claimed
+    fun progress(todayHands: Int): Float =
+        (todayHands.toFloat() / targetHands).coerceAtMost(1f)
 
+    fun canClaim(todayHands: Int): Boolean =
+        todayHands >= targetHands && !claimed
+}
+
+/**
+ * Phase B: 3종 누적 미션 (5 / 10 / 20 핸드). 각 단계별 보상 1k / 2k / 3k.
+ * todayHands 는 화면 최상단 1회만 표시, 미션마다 progress/claim 분기.
+ */
+data class MissionsState(
+    val todayHands: Int = 0,
+    val missions: List<Mission> = DEFAULT_DEFINITIONS.map { def ->
+        Mission(def.id, def.label, def.targetHands, def.rewardAmount, claimed = false)
+    },
+) {
     companion object {
-        /** v1 단일 미션 임계치 — 사용자 결정에 따라 조정. */
-        const val TARGET_HANDS: Int = 5
-        const val REWARD_CHIPS: Long = 1_000L
+        data class Definition(
+            val id: String,
+            val label: String,
+            val targetHands: Int,
+            val rewardAmount: Long,
+        )
+
+        val DEFAULT_DEFINITIONS: List<Definition> = listOf(
+            Definition("hands_5", "5핸드 플레이", 5, 1_000L),
+            Definition("hands_10", "10핸드 플레이", 10, 2_000L),
+            Definition("hands_20", "20핸드 플레이", 20, 3_000L),
+        )
     }
 }

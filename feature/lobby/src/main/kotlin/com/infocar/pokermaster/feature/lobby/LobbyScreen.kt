@@ -71,7 +71,7 @@ fun LobbyScreen(
 ) {
     val wallet by viewModel.wallet.collectAsState()
     val event by viewModel.events.collectAsState()
-    val mission by viewModel.mission.collectAsState()
+    val missions by viewModel.missions.collectAsState()
     val nickname by viewModel.nickname.collectAsState()
     var selectedSeats by rememberSaveable { mutableIntStateOf(2) }
     var showNicknameDialog by remember { mutableStateOf(false) }
@@ -138,8 +138,8 @@ fun LobbyScreen(
                 )
                 Spacer(Modifier.height(12.dp))
 
-                // 잔여9-도전과제: 일일 미션 카드. 5핸드 플레이 → 1k 보상, 일 1회.
-                MissionCard(state = mission, onClaim = viewModel::claimMissionReward)
+                // Phase B: 일일 미션 3종 (5/10/20 핸드 cumulative, 1k/2k/3k).
+                MissionCard(state = missions, onClaim = viewModel::claimMission)
                 Spacer(Modifier.height(12.dp))
 
                 GameMode.entries.forEachIndexed { index, mode ->
@@ -374,11 +374,11 @@ private fun NicknameEditDialog(
 }
 
 /**
- * 잔여9-도전과제: 일일 미션 카드. progress bar + 보상 수령 버튼.
- * canClaim 시만 버튼 활성, claimed=true 면 "수령 완료" 표시, 진행 중이면 보상 텍스트만.
+ * Phase B: 일일 미션 3종 카드 (5/10/20 핸드 cumulative). 한 핸드 누적 카운트 공유,
+ * 임계치별 별도 보상 + 별도 수령 상태.
  */
 @Composable
-private fun MissionCard(state: MissionState, onClaim: () -> Unit) {
+private fun MissionCard(state: MissionsState, onClaim: (String) -> Unit) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(12.dp),
@@ -386,7 +386,7 @@ private fun MissionCard(state: MissionState, onClaim: () -> Unit) {
     ) {
         Column(
             modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -400,45 +400,65 @@ private fun MissionCard(state: MissionState, onClaim: () -> Unit) {
                     color = HangameColors.TextPrimary,
                 )
                 Text(
-                    text = "보상 ${formatChips(state.rewardAmount)}",
+                    text = "오늘 ${state.todayHands}핸드 플레이",
                     style = MaterialTheme.typography.labelMedium,
-                    color = HangameColors.PotValue,
-                    fontWeight = FontWeight.SemiBold,
+                    color = HangameColors.TextSecondary,
                 )
             }
-            Text(
-                text = "오늘 ${state.targetHands}핸드 플레이 (${state.todayHands.coerceAtMost(state.targetHands)}/${state.targetHands})",
-                style = MaterialTheme.typography.bodyMedium,
-                color = HangameColors.TextSecondary,
-            )
-            LinearProgressIndicator(
-                progress = { state.progress },
-                modifier = Modifier.fillMaxWidth().height(6.dp),
-                color = HangameColors.TextLime,
-                trackColor = HangameColors.SeatBgFolded,
-            )
-            when {
-                state.canClaim -> {
-                    Button(
-                        onClick = onClaim,
-                        modifier = Modifier.fillMaxWidth(),
-                    ) { Text("보상 받기 🎁") }
-                }
-                state.claimed -> {
-                    Text(
-                        text = "✅ 오늘 보상 수령 완료 — 내일 다시 진행됩니다.",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = HangameColors.TextLime,
-                    )
-                }
-                else -> {
-                    Text(
-                        text = "${state.targetHands - state.todayHands}핸드 더 플레이하면 보상이 활성화됩니다.",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = HangameColors.TextMuted,
-                    )
-                }
+            state.missions.forEach { mission ->
+                MissionRow(
+                    todayHands = state.todayHands,
+                    mission = mission,
+                    onClaim = { onClaim(mission.id) },
+                )
             }
+        }
+    }
+}
+
+@Composable
+private fun MissionRow(todayHands: Int, mission: Mission, onClaim: () -> Unit) {
+    val canClaim = mission.canClaim(todayHands)
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = "${mission.label} (${todayHands.coerceAtMost(mission.targetHands)}/${mission.targetHands})",
+                style = MaterialTheme.typography.bodyMedium,
+                color = HangameColors.TextPrimary,
+                modifier = Modifier.weight(1f),
+            )
+            Text(
+                text = "+${formatChips(mission.rewardAmount)}",
+                style = MaterialTheme.typography.labelMedium,
+                color = HangameColors.PotValue,
+                fontWeight = FontWeight.SemiBold,
+            )
+        }
+        LinearProgressIndicator(
+            progress = { mission.progress(todayHands) },
+            modifier = Modifier.fillMaxWidth().height(5.dp),
+            color = if (mission.claimed) HangameColors.TextMuted else HangameColors.TextLime,
+            trackColor = HangameColors.SeatBgFolded,
+        )
+        when {
+            canClaim -> {
+                Button(
+                    onClick = onClaim,
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("보상 받기 🎁") }
+            }
+            mission.claimed -> {
+                Text(
+                    text = "✅ 수령 완료",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = HangameColors.TextLime,
+                )
+            }
+            else -> Unit
         }
     }
 }
