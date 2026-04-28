@@ -28,8 +28,11 @@ import kotlinx.serialization.json.Json
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -89,6 +92,13 @@ class TableViewModel private constructor(
     private val _lastActions = MutableStateFlow<Map<Int, String>>(emptyMap())
     val lastActions: StateFlow<Map<Int, String>> = _lastActions.asStateFlow()
     private var clearActionJob: Job? = null
+
+    /**
+     * 액션 발생 시 1회 emit — 인간/NPC 통합. UI 가 collect 해서 SFX/Haptic 단일 분기 처리.
+     * replay=0 (지나간 액션 재생 안 함), buffer=8 (잠깐의 backpressure 흡수).
+     */
+    private val _actionEvent = MutableSharedFlow<ActionEvent>(replay = 0, extraBufferCapacity = 8)
+    val actionEvent: SharedFlow<ActionEvent> = _actionEvent.asSharedFlow()
 
     // M5-B: 핸드 히스토리 수집 버퍼. handIndex 가 바뀔 때마다 리셋.
     private var currentHandIndex: Long = controller.state.handIndex
@@ -205,6 +215,7 @@ class TableViewModel private constructor(
             // M5-B: human 액션 로그 + 핸드 종료 감지.
             logAction(seat = seat, action = action, streetOrdinal = streetBefore.ordinal)
             _state.value = next
+            _actionEvent.tryEmit(ActionEvent(seat = seat, type = action.type, isHuman = true))
             maybeRecordFinishedHand(next)
             persistSnapshot()
             startTicking()
@@ -397,6 +408,9 @@ class TableViewModel private constructor(
                 showLastAction(result.actorSeat, result.action)
                 logAction(seat = result.actorSeat, action = result.action, streetOrdinal = result.streetBefore.ordinal)
                 _state.value = result.state
+                _actionEvent.tryEmit(
+                    ActionEvent(seat = result.actorSeat, type = result.action.type, isHuman = false),
+                )
                 maybeRecordFinishedHand(result.state)
                 persistSnapshot()
             }
@@ -578,6 +592,15 @@ class TableViewModel private constructor(
 
     }
 }
+
+/**
+ * 액션 발생 단발 이벤트. SFX/Haptic 트리거 통합 채널 — 인간/NPC 모두 동일 흐름으로 처리.
+ */
+data class ActionEvent(
+    val seat: Int,
+    val type: ActionType,
+    val isHuman: Boolean,
+)
 
 // ---------------------------------------------------------------------------- Hex helpers
 

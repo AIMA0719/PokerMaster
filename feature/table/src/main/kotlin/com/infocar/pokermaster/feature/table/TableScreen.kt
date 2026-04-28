@@ -189,50 +189,75 @@ fun TableScreen(
     DisposableEffect(sound) { onDispose { sound.release() } }
     val sfxPolicy by settingsRepo.sfxPolicy.collectAsState(initial = SfxPolicy.Default)
 
-    val onHumanActionWithSfx: OnAction = { action ->
-        if (sfxPolicy.hapticEnabled) {
-            when (action.type) {
-                ActionType.RAISE, ActionType.ALL_IN, ActionType.BET,
-                ActionType.COMPLETE, ActionType.BRING_IN -> haptic.onChipCommit()
-                else -> haptic.onAction()
+    // Phase1: 인간 액션 디스패처 — SFX/Haptic 은 viewModel.actionEvent collect 로 단일화.
+    val onHumanActionWithSfx: OnAction = { action -> viewModel.onHumanAction(action) }
+
+    // Phase1: 인간/NPC 액션 통합 SFX/Haptic. NPC tick 도 동일 ActionEvent 흐름으로 처리되어
+    // 무음 NPC 문제 해소. 햅틱은 사용자 손이 닿은 인간 액션에만 (UX 관행), 단 SFX 는 둘 다.
+    LaunchedEffect(viewModel, sfxPolicy) {
+        viewModel.actionEvent.collect { event ->
+            if (sfxPolicy.hapticEnabled && event.isHuman) {
+                when (event.type) {
+                    ActionType.RAISE, ActionType.ALL_IN, ActionType.BET,
+                    ActionType.COMPLETE, ActionType.BRING_IN -> haptic.onChipCommit()
+                    else -> haptic.onAction()
+                }
+            }
+            if (sfxPolicy.soundEnabled) {
+                val kind = when (event.type) {
+                    ActionType.CHECK -> SfxKind.Check
+                    ActionType.FOLD -> SfxKind.Fold
+                    ActionType.ALL_IN -> SfxKind.AllIn
+                    ActionType.DECLARE -> SfxKind.ChipCommit
+                    else -> SfxKind.ChipCommit
+                }
+                // NPC 액션은 살짝 작게 — 본인 액션 강조.
+                sound.play(kind, volume = if (event.isHuman) 0.85f else 0.7f)
             }
         }
-        if (sfxPolicy.soundEnabled) {
-            val kind = when (action.type) {
-                ActionType.CHECK -> SfxKind.Check
-                ActionType.FOLD -> SfxKind.Fold
-                ActionType.ALL_IN -> SfxKind.AllIn
-                else -> SfxKind.ChipCommit
-            }
-            sound.play(kind)
-        }
-        viewModel.onHumanAction(action)
     }
 
-    // CardDeal — 스트릿이 카드 딜링 단계로 진입할 때 1회. dealReady=false 면 프리딜 대기 중이라 스킵.
-    // PREFLOP / FLOP / TURN / RIVER (홀덤) + THIRD..SEVENTH (7스터드) 모두 카드 분배 트리거.
+    // Phase1: 카드 딜링 stagger — 한 스트릿당 1회 → 좌석/카드 수 만큼 짧게 연속 재생.
+    // FLOP=3장, TURN/RIVER=1장, PREFLOP/THIRD/FOURTH~SEVENTH = 활성 좌석 수 만큼.
     LaunchedEffect(state.street, dealReady) {
         if (!dealReady) return@LaunchedEffect
         if (!sfxPolicy.soundEnabled) return@LaunchedEffect
-        when (state.street) {
-            Street.PREFLOP, Street.FLOP, Street.TURN, Street.RIVER,
-            Street.THIRD, Street.FOURTH, Street.FIFTH, Street.SIXTH, Street.SEVENTH ->
-                sound.play(SfxKind.CardDeal)
-            else -> Unit
+        val activeCount = state.players.count { !it.folded }
+        val (count, gap) = when (state.street) {
+            Street.PREFLOP, Street.THIRD -> activeCount to 80L
+            Street.FLOP -> 3 to 100L
+            Street.TURN, Street.RIVER -> 1 to 0L
+            Street.FOURTH, Street.FIFTH, Street.SIXTH, Street.SEVENTH -> activeCount to 80L
+            else -> 0 to 0L
+        }
+        repeat(count) { i ->
+            sound.play(SfxKind.CardDeal, volume = 0.7f)
+            if (i < count - 1 && gap > 0L) delay(gap)
         }
     }
 
-    // PotSweep + HandWin — pendingShowdown 가 채워진 시점(쇼다운 진입) 1회.
-    // PotSweep: 즉시. HandWin: 600ms 후 — 두 사운드가 겹치지 않게 분리.
+    // Phase1: 게임 오버 bust 햅틱 — 본인 패배(파산) 시 한 번 강하게.
+    LaunchedEffect(gameOver, sfxPolicy) {
+        val info = gameOver ?: return@LaunchedEffect
+        if (sfxPolicy.hapticEnabled && !info.isHumanWinner) {
+            haptic.onBust()
+        }
+    }
+
+    // Phase1: PotSweep + HandWin — 본인 승리 vs NPC 승리 차등 (volume + onWin 햅틱).
     val showdownActive = state.pendingShowdown != null
     LaunchedEffect(showdownActive) {
         if (!showdownActive) return@LaunchedEffect
         if (!sfxPolicy.soundEnabled) return@LaunchedEffect
         sound.play(SfxKind.PotSweep)
         delay(600L)
-        // 600ms 사이 사용자가 빠져 나갔거나(hand 전환 등) 정책이 꺼졌다면 스킵.
-        if (sfxPolicy.soundEnabled) {
-            sound.play(SfxKind.HandWin)
+        if (!sfxPolicy.soundEnabled) return@LaunchedEffect
+        val showdown = state.pendingShowdown ?: return@LaunchedEffect
+        val humanSeat = state.players.firstOrNull { it.isHuman }?.seat
+        val humanWon = humanSeat != null && (showdown.payouts[humanSeat] ?: 0L) > 0L
+        sound.play(SfxKind.HandWin, volume = if (humanWon) 1.0f else 0.55f)
+        if (humanWon && sfxPolicy.hapticEnabled) {
+            haptic.onWin()
         }
     }
 
@@ -268,11 +293,7 @@ fun TableScreen(
         TableContent(
             state = displayState,
             onAction = onHumanActionWithSfx,
-            onDeclare = { decl ->
-                if (sfxPolicy.hapticEnabled) haptic.onAction()
-                if (sfxPolicy.soundEnabled) sound.play(SfxKind.ChipCommit)
-                viewModel.onDeclare(decl)
-            },
+            onDeclare = viewModel::onDeclare,
             onNextHand = viewModel::onNextHand,
             onSurrender = viewModel::onSurrender,
             onExit = onExitSettled,
