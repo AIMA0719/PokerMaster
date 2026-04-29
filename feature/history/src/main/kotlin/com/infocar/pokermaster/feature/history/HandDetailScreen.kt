@@ -1,14 +1,19 @@
 package com.infocar.pokermaster.feature.history
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
@@ -41,6 +46,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.infocar.pokermaster.core.data.history.ActionLogEntry
 import com.infocar.pokermaster.core.data.history.HandHistoryRecord
 import com.infocar.pokermaster.core.model.Card
+import com.infocar.pokermaster.core.model.symbol
 import com.infocar.pokermaster.core.ui.theme.HangameColors
 import com.infocar.pokermaster.feature.history.coaching.CoachingTip
 
@@ -87,13 +93,20 @@ fun HandDetailScreen(
             contentAlignment = Alignment.TopCenter,
         ) {
             if (state.loading) {
-                CenteredContent { Text("불러오는 중…", color = HangameColors.TextSecondary) }
+                CenteredContent {
+                    Text(
+                        "불러오는 중…",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = HangameColors.TextSecondary,
+                    )
+                }
                 return@Box
             }
             if (state.notFound || state.record == null) {
                 CenteredContent {
                     Text(
                         "해당 핸드를 찾을 수 없습니다.",
+                        style = MaterialTheme.typography.titleMedium,
                         color = HangameColors.TextDanger,
                     )
                 }
@@ -139,18 +152,49 @@ private fun CenteredContent(content: @Composable () -> Unit) {
 
 @Composable
 private fun HeaderCard(record: HandHistoryRecord) {
+    val nicknameBySeat = remember(record.id) {
+        record.initialState.players.associate { it.seat to it.nickname }
+    }
+    val winnerLabel = record.winnerSeat?.let { seat ->
+        nicknameBySeat[seat] ?: "좌석 $seat"
+    } ?: "무승부 / 사이드팟"
     SectionCard(title = "#${record.handIndex} · ${record.mode}") {
         Text(
-            "승자: " + (record.winnerSeat?.let { "seat $it" } ?: "무승부/사이드팟"),
+            "승자: $winnerLabel",
+            style = MaterialTheme.typography.titleSmall,
             color = HangameColors.TextLime,
             fontWeight = FontWeight.SemiBold,
         )
-        Text("pot: ${record.potSize}", color = HangameColors.TextChip)
+        Text(
+            "팟: ${formatPotChips(record.potSize)}",
+            style = MaterialTheme.typography.titleSmall,
+            color = HangameColors.TextChip,
+        )
         Text(
             text = "핸드 길이: ${(record.endedAt - record.startedAt) / 1000L}초",
-            style = MaterialTheme.typography.bodySmall,
+            style = MaterialTheme.typography.bodyMedium,
             color = HangameColors.TextSecondary,
         )
+    }
+}
+
+private fun formatPotChips(n: Long): String {
+    val abs = kotlin.math.abs(n)
+    val sign = if (n < 0) "-" else ""
+    val MAN = 10_000L
+    val EOK = 100_000_000L
+    return sign + when {
+        abs < MAN -> "%,d칩".format(abs)
+        abs < EOK -> {
+            val man = abs / MAN
+            val rem = abs % MAN
+            if (rem == 0L) "%,d만".format(man) else "%,d만 %,d".format(man, rem)
+        }
+        else -> {
+            val eok = abs / EOK
+            val man = (abs % EOK) / MAN
+            if (man == 0L) "%,d억".format(eok) else "%,d억 %,d만".format(eok, man)
+        }
     }
 }
 
@@ -169,7 +213,7 @@ private fun CoachingCard(record: HandHistoryRecord, llmTip: String?) {
             Text(text = emoji, style = MaterialTheme.typography.headlineSmall)
             Text(
                 text = message,
-                style = MaterialTheme.typography.bodyMedium,
+                style = MaterialTheme.typography.bodyLarge,
                 color = HangameColors.TextPrimary,
             )
         }
@@ -182,18 +226,71 @@ private fun CardsCard(record: HandHistoryRecord) {
     SectionCard(title = "초기 카드") {
         state.players.forEach { p ->
             if (p.holeCards.isNotEmpty()) {
-                Text(
-                    "seat ${p.seat} (${p.nickname}): " + p.holeCards.joinToString(" ") { it.short() },
-                    color = HangameColors.TextPrimary,
-                )
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(
+                        text = p.nickname,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = HangameColors.TextPrimary,
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        p.holeCards.forEach { card -> MiniHistoryCard(card) }
+                        p.upCards.forEach { card -> MiniHistoryCard(card) }
+                    }
+                }
             }
         }
         if (state.community.isNotEmpty()) {
             Text(
-                "community: " + state.community.joinToString(" ") { it.short() },
+                text = "커뮤니티",
                 style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.SemiBold,
                 color = HangameColors.TextLime,
             )
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                state.community.forEach { card -> MiniHistoryCard(card) }
+            }
+        }
+    }
+}
+
+/** 히스토리용 미니 카드 — 36x52dp, 슈트 글리프 + 랭크 글자. */
+@Composable
+private fun MiniHistoryCard(card: Card) {
+    val isRed = card.suit == com.infocar.pokermaster.core.model.Suit.HEART ||
+        card.suit == com.infocar.pokermaster.core.model.Suit.DIAMOND
+    val suitGlyph = card.suit.symbol
+    val rankGlyph = when (card.rank) {
+        com.infocar.pokermaster.core.model.Rank.TWO -> "2"
+        com.infocar.pokermaster.core.model.Rank.THREE -> "3"
+        com.infocar.pokermaster.core.model.Rank.FOUR -> "4"
+        com.infocar.pokermaster.core.model.Rank.FIVE -> "5"
+        com.infocar.pokermaster.core.model.Rank.SIX -> "6"
+        com.infocar.pokermaster.core.model.Rank.SEVEN -> "7"
+        com.infocar.pokermaster.core.model.Rank.EIGHT -> "8"
+        com.infocar.pokermaster.core.model.Rank.NINE -> "9"
+        com.infocar.pokermaster.core.model.Rank.TEN -> "10"
+        com.infocar.pokermaster.core.model.Rank.JACK -> "J"
+        com.infocar.pokermaster.core.model.Rank.QUEEN -> "Q"
+        com.infocar.pokermaster.core.model.Rank.KING -> "K"
+        com.infocar.pokermaster.core.model.Rank.ACE -> "A"
+    }
+    val color = if (isRed) Color(0xFFD93C3C) else Color(0xFF1A1A1A)
+    val shape = RoundedCornerShape(6.dp)
+    Box(
+        modifier = Modifier
+            .size(width = 36.dp, height = 52.dp)
+            .clip(shape)
+            .background(Color.White)
+            .border(1.dp, HangameColors.SeatBorder, shape),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+        ) {
+            Text(rankGlyph, style = MaterialTheme.typography.titleSmall, color = color, fontWeight = FontWeight.Bold)
+            Text(suitGlyph, style = MaterialTheme.typography.bodyMedium, color = color)
         }
     }
 }
@@ -204,7 +301,7 @@ private fun ActionsCard(actions: List<ActionLogEntry>, currentStep: Int = action
         if (actions.isEmpty()) {
             Text(
                 "액션 없음",
-                style = MaterialTheme.typography.bodySmall,
+                style = MaterialTheme.typography.bodyMedium,
                 color = HangameColors.TextSecondary,
             )
             return@SectionCard
@@ -224,10 +321,10 @@ private fun ActionsCard(actions: List<ActionLogEntry>, currentStep: Int = action
                 idx < currentStep -> HangameColors.TextPrimary
                 else -> HangameColors.TextSecondary.copy(alpha = 0.4f)
             }
-            val fontWeight = if (idx + 1 == currentStep) FontWeight.SemiBold else FontWeight.Normal
+            val fontWeight = if (idx + 1 == currentStep) FontWeight.Bold else FontWeight.Normal
             Text(
                 "[$streetLabel] seat ${e.seat} → ${e.action.type}$amount",
-                style = MaterialTheme.typography.bodySmall,
+                style = MaterialTheme.typography.bodyMedium,
                 fontFamily = FontFamily.Monospace,
                 color = color,
                 fontWeight = fontWeight,
@@ -257,7 +354,7 @@ private fun ScrubberCard(
         )
         Text(
             "슬라이더로 액션 시점을 이동하면 해당 시점까지의 로그가 강조됩니다.",
-            style = MaterialTheme.typography.bodySmall,
+            style = MaterialTheme.typography.bodyMedium,
             color = HangameColors.TextSecondary,
         )
     }
@@ -268,22 +365,30 @@ private fun ProvablyFairCard(record: HandHistoryRecord, seedVerified: Boolean) {
     SectionCard(title = "Provably Fair (§3.5)") {
         Text(
             "commit: ${record.seedCommitHex.take(16)}…",
+            style = MaterialTheme.typography.bodyMedium,
             fontFamily = FontFamily.Monospace,
             color = HangameColors.TextSecondary,
         )
         Text(
             "server: ${record.serverSeedHex.take(16)}…",
+            style = MaterialTheme.typography.bodyMedium,
             fontFamily = FontFamily.Monospace,
             color = HangameColors.TextSecondary,
         )
         Text(
             "client: ${record.clientSeedHex.take(16)}…",
+            style = MaterialTheme.typography.bodyMedium,
             fontFamily = FontFamily.Monospace,
             color = HangameColors.TextSecondary,
         )
-        Text("nonce: ${record.nonce}", color = HangameColors.TextSecondary)
+        Text(
+            "nonce: ${record.nonce}",
+            style = MaterialTheme.typography.bodyMedium,
+            color = HangameColors.TextSecondary,
+        )
         Text(
             text = if (seedVerified) "✓ 검증 성공 (SHA-256 일치)" else "✗ 검증 실패",
+            style = MaterialTheme.typography.titleSmall,
             fontWeight = FontWeight.SemiBold,
             color = if (seedVerified) HangameColors.TextLime else HangameColors.TextDanger,
         )
@@ -298,11 +403,11 @@ private fun SectionCard(title: String, content: @Composable () -> Unit) {
             containerColor = HangameColors.SeatBg,
         ),
     ) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(
                 title,
                 style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
+                fontWeight = FontWeight.Bold,
                 color = HangameColors.TextPrimary,
             )
             content()

@@ -2,6 +2,7 @@ package com.infocar.pokermaster.feature.table.guide
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
@@ -14,6 +15,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.infocar.pokermaster.core.ui.theme.PokerMasterTheme
 
 /**
@@ -32,26 +34,36 @@ fun TermTooltip(
         title = {
             Text(
                 text = term.title,
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+                lineHeight = 28.sp,
             )
         },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(
                     text = term.shortDesc,
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.Medium,
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.SemiBold,
+                    lineHeight = 22.sp,
                 )
                 Text(
                     text = term.longDesc,
-                    style = MaterialTheme.typography.bodySmall,
+                    style = MaterialTheme.typography.bodyMedium,
+                    lineHeight = 20.sp,
                 )
             }
         },
         confirmButton = {
-            TextButton(onClick = onDismiss) {
-                Text(text = "확인")
+            TextButton(
+                onClick = onDismiss,
+                modifier = Modifier.defaultMinSize(minHeight = 48.dp),
+            ) {
+                Text(
+                    text = "확인",
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.SemiBold,
+                )
             }
         },
     )
@@ -74,8 +86,14 @@ fun TermChip(
     val term = Glossary.require(termKey)
     AssistChip(
         onClick = { onClick(term) },
-        label = { Text(text = term.title) },
-        modifier = modifier.padding(horizontal = 2.dp),
+        label = {
+            Text(
+                text = term.title,
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.SemiBold,
+            )
+        },
+        modifier = modifier.padding(horizontal = 4.dp),
         colors = AssistChipDefaults.assistChipColors(),
     )
 }

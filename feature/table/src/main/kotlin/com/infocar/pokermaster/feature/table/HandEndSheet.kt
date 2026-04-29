@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -62,6 +63,7 @@ fun HandEndSheet(
     onNext: () -> Unit,
     onInsights: () -> Unit,
     autoNextCountdown: Int? = null,
+    onPauseAutoNext: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     // 시트 자체 등장 애니메이션.
@@ -109,7 +111,7 @@ fun HandEndSheet(
         Surface(
             modifier = Modifier
                 .fillMaxWidth()
-                .heightIn(max = 320.dp),
+                .heightIn(max = 360.dp),
             shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
             color = HangameColors.PotBg.copy(alpha = 0.96f),
             tonalElevation = 8.dp,
@@ -124,7 +126,7 @@ fun HandEndSheet(
                 // 1. 헤더
                 Text(
                     text = headerText,
-                    style = MaterialTheme.typography.titleMedium,
+                    style = MaterialTheme.typography.titleLarge,
                     color = HangameColors.PotValue,
                     fontWeight = FontWeight.Bold,
                 )
@@ -204,12 +206,23 @@ fun HandEndSheet(
 
                 Spacer(Modifier.height(4.dp))
 
-                // 5. 하단 액션 (카운트다운 포함)
+                // 5. 하단 액션 (카운트다운 + 정지)
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
+                    if (autoNextCountdown != null) {
+                        androidx.compose.material3.OutlinedButton(
+                            onClick = onPauseAutoNext,
+                            modifier = Modifier.height(48.dp),
+                        ) {
+                            Text(
+                                text = "정지",
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                        }
+                    }
                     Button(
                         onClick = onNext,
                         modifier = Modifier.weight(1f).height(48.dp),
@@ -269,6 +282,20 @@ private fun DeclarationsPanel(data: HandEndViewData) {
                 Declaration.SWING -> "(스윙 선언)" to PokerColors.Warning
             }
             val forfeit = dir == Declaration.SWING && payout == 0L
+            // 스윙 실패 사유 — 메인팟 기준 hi/lo 어느 쪽에서 졌는지 추적.
+            val swingFailureReason: String? = if (forfeit) {
+                val mainPot = data.pots.firstOrNull()
+                if (mainPot != null) {
+                    val wonHi = seat in mainPot.hiWinnerSeats
+                    val wonLo = seat in mainPot.loWinnerSeats
+                    when {
+                        !wonHi && !wonLo -> "양쪽 모두 패배"
+                        !wonHi -> "하이 쪽 패배"
+                        !wonLo -> "로우 쪽 패배"
+                        else -> null
+                    }
+                } else null
+            } else null
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -293,6 +320,13 @@ private fun DeclarationsPanel(data: HandEndViewData) {
                         color = HangameColors.TextDanger,
                         fontWeight = FontWeight.Bold,
                     )
+                    if (swingFailureReason != null) {
+                        Text(
+                            text = "($swingFailureReason)",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = HangameColors.TextMuted,
+                        )
+                    }
                 }
             }
         }
@@ -313,17 +347,20 @@ private fun BestFiveRow(
     ) {
         Text(
             text = nickname,
-            style = MaterialTheme.typography.labelMedium,
+            style = MaterialTheme.typography.titleSmall,
             color = HangameColors.PotValue,
-            modifier = Modifier.width(64.dp),
+            fontWeight = FontWeight.Bold,
+            maxLines = 1,
+            modifier = Modifier.widthIn(min = 64.dp, max = 96.dp),
         )
-        Spacer(Modifier.width(6.dp))
+        Spacer(Modifier.width(8.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             cards.take(5).forEach { card ->
                 PlayingCard(
                     card = card,
                     faceDown = false,
-                    modifier = Modifier.width(32.dp).height(44.dp),
+                    width = 42.dp,
+                    height = 60.dp,
                 )
             }
         }

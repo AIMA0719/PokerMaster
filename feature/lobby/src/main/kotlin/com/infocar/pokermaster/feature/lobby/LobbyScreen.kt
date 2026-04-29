@@ -4,18 +4,26 @@ import androidx.annotation.StringRes
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
@@ -76,6 +84,7 @@ fun LobbyScreen(
     var selectedSeats by rememberSaveable { mutableIntStateOf(2) }
     var showNicknameDialog by remember { mutableStateOf(false) }
     var enteringTable by remember { mutableStateOf(false) }
+    var pendingModeSelection by remember { mutableStateOf<GameMode?>(null) }
 
     LaunchedEffect(Unit) { viewModel.onEntered() }
 
@@ -104,18 +113,18 @@ fun LobbyScreen(
                     color = HangameColors.TextPrimary,
                     fontWeight = FontWeight.Black,
                 )
-                Spacer(Modifier.height(4.dp))
+                Spacer(Modifier.height(6.dp))
                 Text(
                     text = stringResource(id = R.string.lobby_subtitle),
                     style = MaterialTheme.typography.bodyLarge,
                     color = HangameColors.TextSecondary,
                 )
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(12.dp))
                 NicknameRow(
                     nickname = nickname,
                     onClick = { showNicknameDialog = true },
                 )
-                Spacer(Modifier.height(16.dp))
+                Spacer(Modifier.height(20.dp))
                 WalletHeader(
                     balance = wallet.balanceChips,
                     streak = wallet.streakDays,
@@ -149,7 +158,7 @@ fun LobbyScreen(
                     val hasChips = wallet.balanceChips > 0L
                     val supported = true // 모든 GameMode 정식 지원 (HOLDEM_NL / SEVEN_STUD / SEVEN_STUD_HI_LO)
                     val canEnter = hasChips && supported && !enteringTable
-                    // Phase6: 진입 시 staggered enter (index * 80ms delay) — cinematic 첫 등장.
+                    //진입 시 staggered enter (index * 80ms delay) — cinematic 첫 등장.
                     var visible by remember { mutableStateOf(false) }
                     LaunchedEffect(Unit) {
                         delay(index * 80L)
@@ -168,11 +177,10 @@ fun LobbyScreen(
                                 !hasChips -> "잔고 부족 — 보너스 받고 다시 시도하세요."
                                 else -> null
                             },
-                            // 본인 buy-in = wallet 잔고 전체. NPC 는 ViewModel 에서 5만 fixed.
+                            // 모드 카드 클릭 → buy-in 선택 다이얼로그.
                             onClick = {
                                 if (!enteringTable) {
-                                    enteringTable = true
-                                    onSelectMode(mode, selectedSeats, wallet.balanceChips)
+                                    pendingModeSelection = mode
                                 }
                             },
                         )
@@ -208,7 +216,23 @@ fun LobbyScreen(
         )
     }
 
-    // M6-C: Daily bonus / 파산 모달. M7: silent fail 대신 Toast 노출.
+    pendingModeSelection?.let { mode ->
+        BuyInDialog(
+            mode = mode,
+            seats = selectedSeats,
+            balance = wallet.balanceChips,
+            onConfirm = { buyIn ->
+                pendingModeSelection = null
+                if (!enteringTable) {
+                    enteringTable = true
+                    onSelectMode(mode, selectedSeats, buyIn)
+                }
+            },
+            onDismiss = { pendingModeSelection = null },
+        )
+    }
+
+    // Daily bonus / 파산 / Tier-up 모달 + 에러 Toast.
     val ctx = androidx.compose.ui.platform.LocalContext.current
     when (val e = event) {
         is LobbyEvent.DailyBonus -> DailyBonusDialog(
@@ -236,7 +260,7 @@ fun LobbyScreen(
 
 @Composable
 private fun WalletHeader(balance: Long, streak: Int, lifetime: Long, elo: Int) {
-    // Phase4: 잔고 카운트업 — 잔고가 변할 때 600ms 부드럽게.
+    //잔고 카운트업 — 잔고가 변할 때 600ms 부드럽게.
     val animatedBalance = remember { Animatable(balance.toFloat()) }
     LaunchedEffect(balance) {
         if (animatedBalance.value.toLong() != balance) {
@@ -250,20 +274,23 @@ private fun WalletHeader(balance: Long, streak: Int, lifetime: Long, elo: Int) {
 
     Surface(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(12.dp),
+        shape = RoundedCornerShape(14.dp),
         color = HangameColors.HeaderBgRight.copy(alpha = 0.7f),
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 12.dp),
+                .padding(horizontal = 18.dp, vertical = 16.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Column {
+            Column(
+                modifier = Modifier.weight(1f, fill = false),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
                 Text(
                     text = "잔고",
-                    style = MaterialTheme.typography.labelSmall,
+                    style = MaterialTheme.typography.labelMedium,
                     color = HangameColors.TextMuted,
                 )
                 Text(
@@ -271,16 +298,21 @@ private fun WalletHeader(balance: Long, streak: Int, lifetime: Long, elo: Int) {
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
                     color = HangameColors.TextChip,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
                 if (lifetime > 0L) {
                     val tier = TierLevel.forLifetime(lifetime)
                     Text(
                         text = "${tier.emoji} 누적 ${formatChips(lifetime)} · ${tier.label}",
-                        style = MaterialTheme.typography.labelSmall,
+                        style = MaterialTheme.typography.labelMedium,
                         color = HangameColors.TextMuted,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
             }
+            Spacer(Modifier.size(12.dp))
             Column(horizontalAlignment = Alignment.End) {
                 if (streak > 0) {
                     Text(
@@ -290,15 +322,41 @@ private fun WalletHeader(balance: Long, streak: Int, lifetime: Long, elo: Int) {
                         fontWeight = FontWeight.SemiBold,
                     )
                     StreakDots(streak = streak)
-                    Spacer(Modifier.height(4.dp))
+                    Spacer(Modifier.height(6.dp))
                 }
                 // Phase E: ELO 점수. 항상 표시 (1200 시작).
-                Text(
-                    text = "📊 ELO $elo",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = HangameColors.TextSecondary,
-                    fontWeight = FontWeight.SemiBold,
-                )
+                // ELO 변화량 — 마지막 값과 비교해서 lobby 진입 시 +N/-N 라벨 6초간 노출.
+                var prevElo by rememberSaveable { mutableIntStateOf(elo) }
+                var eloDelta by remember { mutableIntStateOf(0) }
+                LaunchedEffect(elo) {
+                    val diff = elo - prevElo
+                    if (diff != 0 && prevElo != 0) {
+                        eloDelta = diff
+                        delay(6_000L)
+                        if (eloDelta == diff) eloDelta = 0
+                    }
+                    prevElo = elo
+                }
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Text(
+                        text = "📊 ELO $elo",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = HangameColors.TextSecondary,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    if (eloDelta != 0) {
+                        val sign = if (eloDelta > 0) "+" else ""
+                        Text(
+                            text = "$sign$eloDelta",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = if (eloDelta > 0) HangameColors.TextLime else HangameColors.BtnFold,
+                            fontWeight = FontWeight.Black,
+                        )
+                    }
+                }
             }
         }
     }
@@ -311,11 +369,11 @@ private fun WalletHeader(balance: Long, streak: Int, lifetime: Long, elo: Int) {
 @Composable
 private fun StreakDots(streak: Int) {
     val filled = streak.coerceAtMost(7)
-    Row(horizontalArrangement = Arrangement.spacedBy(2.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(horizontalArrangement = Arrangement.spacedBy(3.dp), verticalAlignment = Alignment.CenterVertically) {
         repeat(7) { i ->
             Box(
                 modifier = Modifier
-                    .size(7.dp)
+                    .size(9.dp)
                     .clip(CircleShape)
                     .background(
                         if (i < filled) HangameColors.TextLime
@@ -324,8 +382,13 @@ private fun StreakDots(streak: Int) {
             )
         }
         if (streak >= 7) {
-            Spacer(Modifier.size(3.dp))
-            Text(text = "★", color = HangameColors.PotValue, fontWeight = FontWeight.Black)
+            Spacer(Modifier.size(4.dp))
+            Text(
+                text = "★",
+                color = HangameColors.PotValue,
+                fontWeight = FontWeight.Black,
+                style = MaterialTheme.typography.labelLarge,
+            )
         }
     }
 }
@@ -334,10 +397,16 @@ private fun StreakDots(streak: Int) {
 private fun NicknameRow(nickname: String, onClick: () -> Unit) {
     Row(
         modifier = Modifier
+            .clip(RoundedCornerShape(8.dp))
             .clickable(onClick = onClick)
-            .padding(vertical = 4.dp),
+            .padding(horizontal = 8.dp, vertical = 12.dp)
+            .heightIn(min = 48.dp)
+            .semantics {
+                contentDescription = "닉네임 변경: $nickname"
+                role = androidx.compose.ui.semantics.Role.Button
+            },
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Text(
             text = "안녕,",
@@ -346,11 +415,14 @@ private fun NicknameRow(nickname: String, onClick: () -> Unit) {
         )
         Text(
             text = nickname,
-            style = MaterialTheme.typography.bodyLarge,
+            style = MaterialTheme.typography.titleMedium,
             color = HangameColors.TextLime,
             fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.widthIn(max = 220.dp),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
         )
-        Text(text = "✏️", style = MaterialTheme.typography.bodyMedium)
+        Text(text = "✏️", style = MaterialTheme.typography.bodyLarge)
     }
 }
 
@@ -365,19 +437,31 @@ private fun NicknameEditDialog(
     }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("닉네임 변경") },
+        title = {
+            Text(
+                "닉네임 변경",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+            )
+        },
         text = {
             Column {
                 OutlinedTextField(
                     value = input,
                     onValueChange = { input = it.take(NicknameRepository.MAX_LENGTH) },
                     singleLine = true,
-                    label = { Text("닉네임 (최대 ${NicknameRepository.MAX_LENGTH}자)") },
+                    label = {
+                        Text(
+                            "닉네임 (최대 ${NicknameRepository.MAX_LENGTH}자)",
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                    },
+                    modifier = Modifier.fillMaxWidth(),
                 )
-                Spacer(Modifier.height(6.dp))
+                Spacer(Modifier.height(10.dp))
                 Text(
                     text = "비워두거나 기존과 같으면 변경되지 않습니다.",
-                    style = MaterialTheme.typography.labelSmall,
+                    style = MaterialTheme.typography.labelMedium,
                     color = HangameColors.TextMuted,
                 )
             }
@@ -386,10 +470,21 @@ private fun NicknameEditDialog(
             Button(
                 onClick = { onConfirm(input); onDismiss() },
                 enabled = input.trim().isNotBlank() && input.trim() != current,
-            ) { Text("변경") }
+            ) {
+                Text(
+                    "변경",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
         },
         dismissButton = {
-            OutlinedButton(onClick = onDismiss) { Text("취소") }
+            OutlinedButton(onClick = onDismiss) {
+                Text(
+                    "취소",
+                    style = MaterialTheme.typography.titleSmall,
+                )
+            }
         },
     )
 }
@@ -402,12 +497,12 @@ private fun NicknameEditDialog(
 private fun MissionCard(state: MissionsState, onClaim: (String) -> Unit) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(12.dp),
+        shape = RoundedCornerShape(14.dp),
         color = HangameColors.SeatBg,
     ) {
         Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+            modifier = Modifier.padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -416,14 +511,16 @@ private fun MissionCard(state: MissionsState, onClaim: (String) -> Unit) {
             ) {
                 Text(
                     text = "🎯 일일 미션",
-                    style = MaterialTheme.typography.titleMedium,
+                    style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Black,
                     color = HangameColors.TextPrimary,
                 )
                 Text(
                     text = "오늘 ${state.todayHands}핸드 플레이",
-                    style = MaterialTheme.typography.labelMedium,
+                    style = MaterialTheme.typography.labelLarge,
                     color = HangameColors.TextSecondary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
             state.missions.forEach { mission ->
@@ -440,7 +537,7 @@ private fun MissionCard(state: MissionsState, onClaim: (String) -> Unit) {
 @Composable
 private fun MissionRow(todayHands: Int, mission: Mission, onClaim: () -> Unit) {
     val canClaim = mission.canClaim(todayHands)
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -448,20 +545,23 @@ private fun MissionRow(todayHands: Int, mission: Mission, onClaim: () -> Unit) {
         ) {
             Text(
                 text = "${mission.label} (${todayHands.coerceAtMost(mission.targetHands)}/${mission.targetHands})",
-                style = MaterialTheme.typography.bodyMedium,
+                style = MaterialTheme.typography.bodyLarge,
                 color = HangameColors.TextPrimary,
                 modifier = Modifier.weight(1f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
+            Spacer(Modifier.size(8.dp))
             Text(
                 text = "+${formatChips(mission.rewardAmount)}",
-                style = MaterialTheme.typography.labelMedium,
+                style = MaterialTheme.typography.labelLarge,
                 color = HangameColors.PotValue,
                 fontWeight = FontWeight.SemiBold,
             )
         }
         LinearProgressIndicator(
             progress = { mission.progress(todayHands) },
-            modifier = Modifier.fillMaxWidth().height(5.dp),
+            modifier = Modifier.fillMaxWidth().height(7.dp).clip(RoundedCornerShape(4.dp)),
             color = if (mission.claimed) HangameColors.TextMuted else HangameColors.TextLime,
             trackColor = HangameColors.SeatBgFolded,
         )
@@ -469,14 +569,23 @@ private fun MissionRow(todayHands: Int, mission: Mission, onClaim: () -> Unit) {
             canClaim -> {
                 Button(
                     onClick = onClaim,
-                    modifier = Modifier.fillMaxWidth(),
-                ) { Text("보상 받기 🎁") }
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp),
+                ) {
+                    Text(
+                        "보상 받기 🎁",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                }
             }
             mission.claimed -> {
                 Text(
                     text = "✅ 수령 완료",
-                    style = MaterialTheme.typography.labelMedium,
+                    style = MaterialTheme.typography.labelLarge,
                     color = HangameColors.TextLime,
+                    fontWeight = FontWeight.SemiBold,
                 )
             }
             else -> Unit
@@ -494,22 +603,22 @@ private fun SeatCountPicker(
     Column(modifier = Modifier.fillMaxWidth()) {
         Text(
             text = "인원 수",
-            style = MaterialTheme.typography.labelLarge,
+            style = MaterialTheme.typography.titleSmall,
             color = HangameColors.TextSecondary,
             fontWeight = FontWeight.SemiBold,
         )
-        Spacer(Modifier.height(6.dp))
+        Spacer(Modifier.height(8.dp))
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             for (n in 2..4) {
                 val active = n == selected
                 Card(
                     modifier = Modifier
                         .weight(1f)
-                        .height(48.dp)
-                        .clip(RoundedCornerShape(10.dp)),
+                        .height(52.dp)
+                        .clip(RoundedCornerShape(12.dp)),
                     colors = CardDefaults.cardColors(
                         containerColor = if (active) HangameColors.SeatBgActive else HangameColors.SeatBg,
                     ),
@@ -540,24 +649,33 @@ private fun MenuRow(label: String, onClick: () -> Unit) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .height(56.dp)
-            .clip(RoundedCornerShape(12.dp)),
+            .height(60.dp)
+            .clip(RoundedCornerShape(14.dp)),
         colors = CardDefaults.cardColors(
             containerColor = HangameColors.SeatBg,
         ),
         onClick = onClick,
     ) {
-        Box(
+        Row(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 16.dp),
-            contentAlignment = Alignment.CenterStart,
+                .padding(horizontal = 18.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
         ) {
             Text(
                 text = label,
                 style = MaterialTheme.typography.titleMedium,
                 color = HangameColors.TextPrimary,
-                fontWeight = FontWeight.Medium,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = "›",
+                color = HangameColors.TextSecondary,
+                fontWeight = FontWeight.Black,
+                style = MaterialTheme.typography.titleLarge,
             )
         }
     }
@@ -570,7 +688,7 @@ private fun DailyBonusDialog(
     newBalance: Long,
     onDismiss: () -> Unit,
 ) {
-    // 잔여9-2: chipsGranted 0→amount 카운트업 (800ms) + 칩 이모지 bounce (0→1.2→1.0).
+    //chipsGranted 0→amount 카운트업 (800ms) + 칩 이모지 bounce (0→1.2→1.0).
     val animatedGranted = remember { Animatable(0f) }
     LaunchedEffect(chipsGranted) {
         animatedGranted.snapTo(0f)
@@ -591,36 +709,52 @@ private fun DailyBonusDialog(
         title = {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                Text(text = "🪙", modifier = Modifier.scale(bounceScale.value))
-                Text("오늘의 보너스", fontWeight = FontWeight.Black)
+                Text(
+                    text = "🪙",
+                    modifier = Modifier.scale(bounceScale.value),
+                    style = MaterialTheme.typography.headlineSmall,
+                )
+                Text(
+                    "오늘의 보너스",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Black,
+                )
             }
         },
         text = {
-            Column {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text(
                     "+${formatChips(displayGranted)}",
-                    style = MaterialTheme.typography.headlineSmall,
+                    style = MaterialTheme.typography.headlineMedium,
                     fontWeight = FontWeight.Black,
                     color = HangameColors.PotValue,
                 )
                 if (streak > 0) {
                     Text(
                         "🔥 연속 $streak 일",
-                        style = MaterialTheme.typography.bodyMedium,
+                        style = MaterialTheme.typography.titleMedium,
                         color = HangameColors.TextLime,
                         fontWeight = FontWeight.SemiBold,
                     )
                 }
                 Text(
                     "잔고 ${formatChips(newBalance)}",
-                    style = MaterialTheme.typography.bodySmall,
+                    style = MaterialTheme.typography.bodyMedium,
                     color = HangameColors.TextMuted,
                 )
             }
         },
-        confirmButton = { Button(onClick = onDismiss) { Text("받기") } },
+        confirmButton = {
+            Button(onClick = onDismiss) {
+                Text(
+                    "받기",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
+        },
     )
 }
 
@@ -655,27 +789,31 @@ private fun TierUpDialog(newTier: TierLevel, oldTier: TierLevel, onDismiss: () -
         title = {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 Text(
                     text = newTier.emoji,
                     modifier = Modifier.scale(bounce.value),
                     style = MaterialTheme.typography.displaySmall,
                 )
-                Text("티어 진급!", fontWeight = FontWeight.Black)
+                Text(
+                    "티어 진급!",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Black,
+                )
             }
         },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
                     "${oldTier.label} → ${newTier.label}",
-                    style = MaterialTheme.typography.titleMedium,
+                    style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
                     color = HangameColors.PotValue,
                 )
                 Text(
                     "축하합니다! 누적 ${formatChips(newTier.threshold)} 칩을 돌파했습니다.",
-                    style = MaterialTheme.typography.bodyMedium,
+                    style = MaterialTheme.typography.bodyLarge,
                 )
                 if (newTier.rewardChips > 0L) {
                     Text(
@@ -688,24 +826,34 @@ private fun TierUpDialog(newTier: TierLevel, oldTier: TierLevel, onDismiss: () -
                 newTier.next()?.let { next ->
                     Text(
                         "다음 티어: ${next.emoji} ${next.label} (누적 ${formatChips(next.threshold)})",
-                        style = MaterialTheme.typography.labelSmall,
+                        style = MaterialTheme.typography.labelMedium,
                         color = HangameColors.TextMuted,
                     )
                 } ?: Text(
                     "최고 티어 달성! 🎉",
-                    style = MaterialTheme.typography.labelMedium,
+                    style = MaterialTheme.typography.labelLarge,
                     color = HangameColors.TextLime,
+                    fontWeight = FontWeight.SemiBold,
                 )
             }
         },
-        confirmButton = { Button(onClick = onDismiss) { Text("확인") } },
+        confirmButton = {
+            Button(onClick = onDismiss) {
+                Text(
+                    "확인",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
+        },
     )
 }
 
 @Composable
 private fun BankruptDialog(balance: Long, onReset: () -> Unit) {
-    // 잔여9-2: 💸 이모지 한 번 wobble shake (5 keyframes ~500ms) + 빨간 강조.
+    //💸 이모지 한 번 wobble shake (5 keyframes ~500ms) + 빨간 강조.
     val shake = remember { Animatable(0f) }
+    val ctx = androidx.compose.ui.platform.LocalContext.current
     LaunchedEffect(Unit) {
         for (k in listOf(0f, 1f, -1f, 0.5f, -0.3f, 0f)) {
             shake.animateTo(k, tween(durationMillis = 90, easing = FastOutSlowInEasing))
@@ -716,24 +864,120 @@ private fun BankruptDialog(balance: Long, onReset: () -> Unit) {
         title = {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 Text(
                     text = "💸",
                     modifier = Modifier.offset {
                         IntOffset(x = (shake.value * 6.dp.toPx()).toInt(), y = 0)
                     },
+                    style = MaterialTheme.typography.headlineSmall,
                 )
-                Text("파산", fontWeight = FontWeight.Black, color = HangameColors.BtnFold)
+                Text(
+                    "파산",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Black,
+                    color = HangameColors.BtnFold,
+                )
             }
         },
         text = {
             Text(
                 "현재 잔고 ${formatChips(balance)} 로는 테이블 입장이 불가능합니다." +
                     " 재시작 보너스를 받으시겠어요?",
+                style = MaterialTheme.typography.bodyLarge,
             )
         },
-        confirmButton = { Button(onClick = onReset) { Text("재시작 보너스 수령") } },
+        confirmButton = {
+            Button(onClick = onReset) {
+                Text(
+                    "재시작 보너스 수령",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
+        },
+        dismissButton = {
+            OutlinedButton(onClick = {
+                (ctx as? android.app.Activity)?.finish()
+            }) { Text("앱 종료") }
+        },
+    )
+}
+
+/**
+ * 모드 진입 전 buy-in 시드 선택 다이얼로그.
+ *  - 잔고 비례 프리셋 4개 (10% / 25% / 50% / 100%).
+ *  - NPC 는 ViewModel 에서 5만 fixed.
+ */
+@Composable
+private fun BuyInDialog(
+    mode: GameMode,
+    seats: Int,
+    balance: Long,
+    onConfirm: (Long) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val presets = remember(balance) {
+        listOf(
+            balance / 10L,
+            balance / 4L,
+            balance / 2L,
+            balance,
+        ).map { it.coerceAtLeast(1L) }
+    }
+    var selected by remember(presets) { mutableStateOf(presets.last()) }
+
+    val modeLabel = when (mode) {
+        GameMode.HOLDEM_NL -> "텍사스 홀덤"
+        GameMode.SEVEN_STUD -> "7카드 스터드"
+        GameMode.SEVEN_STUD_HI_LO -> "7카드 하이로우"
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("$modeLabel · ${seats}인", fontWeight = FontWeight.Bold) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    "테이블에 가져갈 시드를 선택하세요. 잔고 ${formatChips(balance)}.",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                val labels = listOf("10%", "25%", "50%", "전액")
+                labels.forEachIndexed { i, lbl ->
+                    val amt = presets[i]
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { selected = amt }
+                            .padding(vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Text(
+                            "$lbl  ·  ${formatChips(amt)}",
+                            color = if (selected == amt) HangameColors.TextLime else HangameColors.TextPrimary,
+                            fontWeight = if (selected == amt) FontWeight.Bold else FontWeight.Normal,
+                        )
+                        if (selected == amt) Text("✓", color = HangameColors.TextLime, fontWeight = FontWeight.Black)
+                    }
+                }
+                Text(
+                    "NPC는 5만 칩으로 동일 입장합니다. 패배하면 시드만 잃고, 승리하면 칩이 잔고에 적립됩니다.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = HangameColors.TextMuted,
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = { onConfirm(selected) },
+                enabled = selected > 0L,
+            ) { Text("입장") }
+        },
+        dismissButton = {
+            OutlinedButton(onClick = onDismiss) { Text("취소") }
+        },
     )
 }
 
@@ -745,11 +989,11 @@ private fun formatChips(n: Long): String {
     val JO = 1_000_000_000_000L
     val GYEONG = 10_000_000_000_000_000L
     return sign + when {
-        abs < MAN -> "%,d원".format(abs)
+        abs < MAN -> "%,d칩".format(abs)
         abs < EOK -> {
             val man = abs / MAN
             val rem = abs % MAN
-            if (rem == 0L) "%,d만".format(man) else "%,d만 %,d원".format(man, rem)
+            if (rem == 0L) "%,d만".format(man) else "%,d만 %,d".format(man, rem)
         }
         abs < JO -> {
             val eok = abs / EOK
@@ -804,33 +1048,58 @@ private fun ModeCard(
         GameMode.SEVEN_STUD_HI_LO -> HangameColors.HiLoHiBadge
         GameMode.HOLDEM_NL -> HangameColors.PotValue
     }
+    // press feedback — scale + accent 톤 보더 강화. stud 모드는 휴면 상태에도 약한 보더 유지.
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val pressScale by animateFloatAsState(
+        targetValue = if (isPressed && enabled) MODE_CARD_PRESS_SCALE else 1f,
+        animationSpec = tween(durationMillis = MODE_CARD_PRESS_TWEEN_MS),
+        label = "mode-card-scale",
+    )
+    val borderAlpha by animateFloatAsState(
+        targetValue = when {
+            !enabled -> 0f
+            isPressed -> MODE_CARD_BORDER_ALPHA_PRESSED
+            isStud -> MODE_CARD_BORDER_ALPHA_STUD_REST
+            else -> 0f
+        },
+        animationSpec = tween(
+            durationMillis = if (isPressed) MODE_CARD_BORDER_FADE_IN_MS else MODE_CARD_BORDER_FADE_OUT_MS,
+        ),
+        label = "mode-card-border",
+    )
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .height(96.dp)
-            .clip(RoundedCornerShape(14.dp)),
+            .height(104.dp)
+            .scale(pressScale)
+            .clip(RoundedCornerShape(16.dp)),
         colors = CardDefaults.cardColors(
             containerColor = if (enabled) HangameColors.SeatBgActive else HangameColors.SeatBgFolded,
         ),
-        border = if (enabled && isStud)
-            androidx.compose.foundation.BorderStroke(1.5.dp, accent.copy(alpha = 0.55f))
+        border = if (borderAlpha > 0f)
+            androidx.compose.foundation.BorderStroke(
+                if (isPressed) 2.dp else 1.5.dp,
+                accent.copy(alpha = borderAlpha),
+            )
         else null,
         enabled = enabled,
+        interactionSource = interactionSource,
         onClick = onClick,
     ) {
         Row(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 16.dp, vertical = 10.dp),
+                .padding(horizontal = 18.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(14.dp),
+            horizontalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            // 좌측 슈트/모드 글리프 — 64dp 원형. 한게임의 "큰 카드 아트" 슬롯 대용.
+            // 좌측 슈트/모드 글리프 — 68dp 원형. 한게임의 "큰 카드 아트" 슬롯 대용.
             Box(
                 modifier = Modifier
-                    .height(64.dp)
-                    .widthIn(min = 64.dp)
-                    .clip(RoundedCornerShape(12.dp))
+                    .height(68.dp)
+                    .widthIn(min = 68.dp)
+                    .clip(RoundedCornerShape(14.dp))
                     .background(
                         if (enabled) HangameColors.FeltMid else HangameColors.SeatBgFolded
                     ),
@@ -845,7 +1114,7 @@ private fun ModeCard(
             }
             Column(
                 modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(2.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 Text(
                     text = stringResource(id = mode.titleRes()),
@@ -860,7 +1129,7 @@ private fun ModeCard(
                 Text(
                     text = if (!enabled && reasonIfDisabled != null) reasonIfDisabled
                     else mode.subtitle(),
-                    style = MaterialTheme.typography.bodySmall,
+                    style = MaterialTheme.typography.bodyMedium,
                     color = if (enabled) HangameColors.TextSecondary
                     else HangameColors.TextMuted,
                     maxLines = 1,
@@ -873,9 +1142,16 @@ private fun ModeCard(
                     text = "›",
                     color = accent,
                     fontWeight = FontWeight.Black,
-                    style = MaterialTheme.typography.headlineSmall,
+                    style = MaterialTheme.typography.headlineMedium,
                 )
             }
         }
     }
 }
+
+private const val MODE_CARD_PRESS_SCALE = 0.97f
+private const val MODE_CARD_PRESS_TWEEN_MS = 90
+private const val MODE_CARD_BORDER_ALPHA_PRESSED = 0.95f
+private const val MODE_CARD_BORDER_ALPHA_STUD_REST = 0.55f
+private const val MODE_CARD_BORDER_FADE_IN_MS = 60
+private const val MODE_CARD_BORDER_FADE_OUT_MS = 240

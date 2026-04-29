@@ -22,6 +22,7 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.infocar.pokermaster.core.ui.theme.PokerMasterTheme
@@ -61,20 +62,21 @@ fun FallbackModeBadge(
         }
 
         Row(
-            modifier = Modifier.padding(PaddingValues(horizontal = 10.dp, vertical = 5.dp)),
+            modifier = Modifier.padding(PaddingValues(horizontal = 12.dp, vertical = 6.dp)),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Icon(
                 imageVector = Icons.Default.SmartToy,
                 contentDescription = stringResource(id = R.string.badge_fallback_ai),
-                tint = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.75f),
+                tint = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.85f),
                 modifier = Modifier.padding(0.dp),
             )
             Text(
                 text = stringResource(id = R.string.badge_fallback_ai),
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.85f),
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.Medium,
+                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.95f),
             )
         }
     }

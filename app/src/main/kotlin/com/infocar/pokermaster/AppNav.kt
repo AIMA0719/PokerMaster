@@ -10,7 +10,12 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -39,6 +44,8 @@ import com.infocar.pokermaster.feature.lobby.LobbyScreen
 import com.infocar.pokermaster.feature.onboarding.OnboardingPrefs
 import com.infocar.pokermaster.feature.onboarding.OnboardingScreen
 import com.infocar.pokermaster.feature.table.TableScreen
+import com.infocar.pokermaster.feature.table.settings.LimitTriggerKind
+import com.infocar.pokermaster.feature.table.settings.SettingsRepository
 import com.infocar.pokermaster.feature.table.settings.SettingsScreen
 import com.infocar.pokermaster.model.DefaultModels
 import com.infocar.pokermaster.model.ModelGateScreen
@@ -46,6 +53,9 @@ import com.infocar.pokermaster.model.ModelStore
 import dagger.hilt.android.EntryPointAccessors
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 private const val NAV_TRANSITION_MS = 280
@@ -89,7 +99,10 @@ fun AppNav() {
         composable(Routes.MODEL_GATE) {
             ModelGateScreen(onReady = {
                 val completed = prefs.getBoolean(OnboardingPrefs.KEY_COMPLETED, false)
-                val dest = if (completed) Routes.LOBBY else Routes.ONBOARDING
+                val agreedVersion = prefs.getInt(OnboardingPrefs.KEY_TERMS_VERSION, 0)
+                // 완료한 적 있어도 약관 버전이 올랐으면 재동의 유도.
+                val needsReconsent = agreedVersion < OnboardingPrefs.TERMS_VERSION
+                val dest = if (completed && !needsReconsent) Routes.LOBBY else Routes.ONBOARDING
                 nav.navigate(dest) {
                     popUpTo(Routes.MODEL_GATE) { inclusive = true }
                 }
@@ -100,6 +113,12 @@ fun AppNav() {
                 prefs.edit().apply {
                     putBoolean(OnboardingPrefs.KEY_COMPLETED, true)
                     putString(OnboardingPrefs.KEY_NICKNAME, result.nickname)
+                    // 약관 동의 메타데이터 — 컴플라이언스 근거. 시점 + 버전 보존.
+                    putBoolean(OnboardingPrefs.KEY_AGE_CONFIRMED, result.ageConfirmed)
+                    putBoolean(OnboardingPrefs.KEY_TERMS_ACCEPTED, result.termsAccepted)
+                    putBoolean(OnboardingPrefs.KEY_PRIVACY_ACCEPTED, result.privacyAccepted)
+                    putLong(OnboardingPrefs.KEY_ACCEPTED_AT_MS, result.acceptedAtMs)
+                    putInt(OnboardingPrefs.KEY_TERMS_VERSION, result.termsVersion)
                     apply()
                 }
                 nav.navigate(Routes.LOBBY) {
@@ -126,18 +145,47 @@ fun AppNav() {
                     fadeOut(animationSpec = tween(NAV_TRANSITION_MS))
             },
         ) {
+            val lobbyCtx = LocalContext.current.applicationContext
+            val settingsRepo = remember(lobbyCtx) { SettingsRepository(lobbyCtx) }
+            val scope = androidx.compose.runtime.rememberCoroutineScope()
+            var limitBlocker by remember { mutableStateOf<String?>(null) }
+
             LobbyScreen(
                 onSelectMode = { mode, seats, buyIn ->
-                    // 모든 정식 모드 지원 — HOLDEM_NL / SEVEN_STUD / SEVEN_STUD_HI_LO.
-                    nav.navigate(Routes.table(mode, seats, buyIn))
+                    scope.launch {
+                        val (limit, usage) = combine(
+                            settingsRepo.selfLimit,
+                            settingsRepo.dailyUsage,
+                        ) { l, u -> l to u }.first()
+                        val kind = limit.evaluate(usage)
+                        if (kind == null) {
+                            nav.navigate(Routes.table(mode, seats, buyIn))
+                        } else {
+                            // 진입 게이트 메시지는 누적 도달 알림(TableScreen)보다 강한 톤 — 자정 이후 재시작 안내.
+                            val unit = if (kind is LimitTriggerKind.Hand) "핸드" else "분 누적 플레이"
+                            limitBlocker = "오늘 ${kind.limit}$unit 한도에 도달했어요 " +
+                                "(현재 ${kind.current}${if (kind is LimitTriggerKind.Hand) "핸드" else "분"}). " +
+                                "자정 이후 다시 시작할 수 있습니다."
+                        }
+                    }
                 },
-                // M5-C: 히스토리 진입점.
                 onOpenHistory = { nav.navigate(Routes.HISTORY) },
-                // M6-A: 설정 진입점.
                 onOpenSettings = { nav.navigate(Routes.SETTINGS) },
-                // M6-B: 통계 진입점.
                 onOpenStats = { nav.navigate(Routes.STATS) },
             )
+
+            limitBlocker?.let { msg ->
+                androidx.compose.material3.AlertDialog(
+                    onDismissRequest = { limitBlocker = null },
+                    title = { Text("오늘 한도 도달") },
+                    text = { Text(msg) },
+                    confirmButton = {
+                        androidx.compose.material3.Button(onClick = { limitBlocker = null }) {
+                            Text("확인")
+                        }
+                    },
+                )
+            }
         }
         composable(Routes.SETTINGS) {
             val appCtx = LocalContext.current.applicationContext
@@ -238,15 +286,14 @@ fun AppNav() {
 @Composable
 private fun SplashScreen(onReady: () -> Unit) {
     val ctx = LocalContext.current
-    // v1.1 §1.2.O 단말 사양 핑거프린팅: Splash 에서 1회 측정 후 Mid 이하면 안내 Toast.
+    // Mid/Low 티어 단말은 LLM 모드 한계가 있어 안내 배너로 사용자 기대치 정렬.
+    var tierLabel by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(Unit) {
         val tier = DeviceFingerprint.classify(ctx)
         if (tier == DeviceTier.MID || tier == DeviceTier.LOW) {
-            android.widget.Toast
-                .makeText(ctx, DeviceFingerprint.label(tier), android.widget.Toast.LENGTH_LONG)
-                .show()
+            tierLabel = DeviceFingerprint.label(tier)
         }
-        delay(1_100L)
+        delay(1_400L)
         onReady()
     }
     // 잔여9-3: Splash cinematic — 카드 슈트 scaleIn 0.55→1.0 (700ms), 타이틀 200ms 후 fadeIn.
@@ -275,11 +322,15 @@ private fun SplashScreen(onReady: () -> Unit) {
         ) {
             Text(
                 text = "♠♥♦♣",
-                style = MaterialTheme.typography.displayMedium,
+                style = MaterialTheme.typography.displayLarge,
                 color = com.infocar.pokermaster.core.ui.theme.HangameColors.TextSecondary,
+                letterSpacing = 8.sp,
                 modifier = Modifier
                     .alpha(cardAlpha.value)
                     .scale(cardScale.value),
+            )
+            androidx.compose.foundation.layout.Spacer(
+                modifier = Modifier.height(20.dp),
             )
             Text(
                 text = stringResource(id = R.string.splash_title),
@@ -288,6 +339,18 @@ private fun SplashScreen(onReady: () -> Unit) {
                 fontWeight = androidx.compose.ui.text.font.FontWeight.Black,
                 modifier = Modifier.alpha(titleAlpha.value),
             )
+            tierLabel?.let { label ->
+                Text(
+                    text = label,
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = com.infocar.pokermaster.core.ui.theme.HangameColors.TextSecondary,
+                    textAlign = TextAlign.Center,
+                    lineHeight = 22.sp,
+                    modifier = Modifier
+                        .padding(top = 24.dp, start = 24.dp, end = 24.dp)
+                        .alpha(titleAlpha.value),
+                )
+            }
         }
     }
 }

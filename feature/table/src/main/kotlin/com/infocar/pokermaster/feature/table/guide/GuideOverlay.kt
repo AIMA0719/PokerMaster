@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -24,6 +25,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.infocar.pokermaster.core.ui.theme.PokerMasterTheme
 
 /**
@@ -91,7 +93,7 @@ fun GuideOverlay(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.45f))
+            .background(Color.Black.copy(alpha = 0.55f))
             .padding(PaddingValues(16.dp)),
         contentAlignment = Alignment.BottomCenter,
     ) {
@@ -108,12 +110,14 @@ fun GuideOverlay(
             ) {
                 Text(
                     text = step.title,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    lineHeight = 28.sp,
                 )
                 Text(
                     text = step.body,
-                    style = MaterialTheme.typography.bodyMedium,
+                    style = MaterialTheme.typography.bodyLarge,
+                    lineHeight = 24.sp,
                 )
                 Spacer(Modifier.height(4.dp))
                 GuideOverlayButtons(
@@ -135,24 +139,42 @@ private fun GuideOverlayButtons(
     Box(modifier = Modifier.fillMaxWidth()) {
         TextButton(
             onClick = onDismiss,
-            modifier = Modifier.align(Alignment.CenterStart),
+            modifier = Modifier
+                .align(Alignment.CenterStart)
+                .defaultMinSize(minHeight = 48.dp),
         ) {
-            Text(text = "가이드 끄기")
+            Text(
+                text = "가이드 끄기",
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.SemiBold,
+            )
         }
         if (nextLabel != null) {
             Button(
                 onClick = onNext,
-                modifier = Modifier.align(Alignment.CenterEnd),
+                modifier = Modifier
+                    .align(Alignment.CenterEnd)
+                    .defaultMinSize(minHeight = 48.dp),
                 colors = ButtonDefaults.buttonColors(),
             ) {
-                Text(text = nextLabel)
+                Text(
+                    text = nextLabel,
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.SemiBold,
+                )
             }
         } else {
             TextButton(
                 onClick = onDismiss,
-                modifier = Modifier.align(Alignment.CenterEnd),
+                modifier = Modifier
+                    .align(Alignment.CenterEnd)
+                    .defaultMinSize(minHeight = 48.dp),
             ) {
-                Text(text = "닫기")
+                Text(
+                    text = "닫기",
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.SemiBold,
+                )
             }
         }
     }

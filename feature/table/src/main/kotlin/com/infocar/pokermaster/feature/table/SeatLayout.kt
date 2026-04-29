@@ -148,15 +148,16 @@ fun SeatLayout(
 // PlayerSeat — 한게임 풍 가로 박스
 // ---------------------------------------------------------------------------
 
-private val SeatWidthOther = 150.dp
-private val SeatWidthHuman = 178.dp
-private val SeatHeight = 52.dp
-private val SeatCorner = 10.dp
-private val AvatarSize = 36.dp
-private val MiniCardWidthOther = 20.dp
-private val MiniCardHeightOther = 28.dp
-private val MiniCardWidthHuman = 28.dp
-private val MiniCardHeightHuman = 40.dp
+// 3인 모드 좌우 좌석 겹침 방지를 위해 SeatWidthOther 는 좁게 유지.
+private val SeatWidthOther = 138.dp
+private val SeatWidthHuman = 184.dp
+private val SeatHeight = 56.dp
+private val SeatCorner = 12.dp
+private val AvatarSize = 40.dp
+private val MiniCardWidthOther = 26.dp
+private val MiniCardHeightOther = 36.dp
+private val MiniCardWidthHuman = 32.dp
+private val MiniCardHeightHuman = 44.dp
 
 /**
  * 단일 좌석 시트. TableScreen 의 명시적 layout (헤즈업/3인/4인) 에서 직접 호출하기 위해 internal.
@@ -236,7 +237,7 @@ internal fun PlayerSeat(
         }
     }
 
-    val seatHeight = if (isHuman) 60.dp else SeatHeight
+    val seatHeight = if (isHuman) 64.dp else SeatHeight
 
     // M7: A11ySettings.announceActionsAudibly true 시 본 시트의 액션 라벨 변경을 TalkBack 으로 음성 안내.
     val announceActions = LocalAnnounceActions.current
@@ -282,7 +283,7 @@ internal fun PlayerSeat(
                             Text(
                                 text = extraBadgeLabel,
                                 color = HangameColors.SeatBorderActive,
-                                fontSize = 9.sp,
+                                fontSize = 10.sp,
                                 fontWeight = FontWeight.Bold,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
@@ -291,7 +292,7 @@ internal fun PlayerSeat(
                         Text(
                             text = player.nickname,
                             color = HangameColors.TextPrimary,
-                            fontSize = 12.sp,
+                            fontSize = 13.sp,
                             fontWeight = FontWeight.SemiBold,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
@@ -307,7 +308,7 @@ internal fun PlayerSeat(
                         Text(
                             text = ChipFormat.format(animatedChips.toLong()),
                             color = HangameColors.TextChip,
-                            fontSize = 11.sp,
+                            fontSize = 12.sp,
                             fontWeight = FontWeight.Medium,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
@@ -406,7 +407,7 @@ private fun SeatAvatar(initial: String, folded: Boolean, isHuman: Boolean) {
     ) {
         Text(
             text = initial,
-            fontSize = 16.sp,
+            fontSize = 18.sp,
             color = HangameColors.TextPrimary,
             fontWeight = FontWeight.Bold,
         )
@@ -623,8 +624,8 @@ private fun AllInBadge() {
 
 @Composable
 private fun PayoutPulse(amount: Long) {
-    // Phase5: enter 시 아래에서 위로 떠오르며 등장, exit 시 위로 사라짐 — toast 풍 트레일.
-    // Phase8: reduceMotion 시 단순 fade — slide/scale 효과 skip.
+    //enter 시 아래에서 위로 떠오르며 등장, exit 시 위로 사라짐 — toast 풍 트레일.
+    //reduceMotion 시 단순 fade — slide/scale 효과 skip.
     val reduceMotion = LocalReduceMotion.current
     AnimatedVisibility(
         visible = amount > 0L,
@@ -651,7 +652,7 @@ private fun PayoutPulse(amount: Long) {
 private fun PayoutBadge(amount: Long) {
     // 승리 시 prominent 한 골드 펄스 — 펄스 알파로 시각 강조.
     val pulse = pulseFloat(initial = 0.85f, target = 1f, periodMs = 600, label = "payout-pulse")
-    // Phase2: 0 → amount 카운트업 (700ms FastOutSlow). reduceMotion 시 즉시 표시.
+    //0 → amount 카운트업 (700ms FastOutSlow). reduceMotion 시 즉시 표시.
     val reduceMotion = LocalReduceMotion.current
     val progress = remember { Animatable(0f) }
     LaunchedEffect(amount, reduceMotion) {
@@ -699,7 +700,7 @@ private fun MarkerDisc(label: String, isBtn: Boolean, modifier: Modifier = Modif
         else -> HangameColors.MarkerBb to Color.White
     }
     Surface(
-        modifier = modifier.size(20.dp),
+        modifier = modifier.size(22.dp),
         shape = CircleShape,
         color = bg,
         shadowElevation = 2.dp,
@@ -707,7 +708,7 @@ private fun MarkerDisc(label: String, isBtn: Boolean, modifier: Modifier = Modif
         Box(contentAlignment = Alignment.Center) {
             Text(
                 text = if (isBtn) "D" else label,
-                fontSize = 9.sp,
+                fontSize = 10.sp,
                 color = fg,
                 fontWeight = FontWeight.Bold,
             )

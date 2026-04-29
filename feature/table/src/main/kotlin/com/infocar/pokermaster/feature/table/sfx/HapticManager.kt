@@ -30,9 +30,23 @@ class HapticManager(context: Context) {
         vibrateOneShot(durationMs = 22L, amplitude = AMPLITUDE_MEDIUM)
     }
 
-    /** 카드 플립 (펼치기/쇼다운). 짧고 가벼운 틱. */
-    fun onCardFlip() {
-        vibrateOneShot(durationMs = 8L, amplitude = AMPLITUDE_LIGHT)
+    /**
+     * 패시브 액션 (CHECK / FOLD) 용 짧은 틱.
+     * [onAction] (12ms) 보다 한 단계 더 가벼워서 CALL/DECLARE 와 손맛 구분.
+     */
+    fun onTick() {
+        vibrateOneShot(durationMs = 6L, amplitude = AMPLITUDE_LIGHT)
+    }
+
+    /**
+     * 강한 단발 액션 (ALL_IN) 용 짧은 더블탭.
+     * 첫 펄스 + 짧은 갭 + 두 번째 펄스.
+     */
+    fun onDoubleClick() {
+        vibrateWaveform(
+            timings = longArrayOf(0L, 14L, 40L, 14L),
+            amplitudes = intArrayOf(0, AMPLITUDE_MEDIUM, 0, AMPLITUDE_MEDIUM),
+        )
     }
 
     /** 핸드 승리. 짧은 펄스 두 번. */

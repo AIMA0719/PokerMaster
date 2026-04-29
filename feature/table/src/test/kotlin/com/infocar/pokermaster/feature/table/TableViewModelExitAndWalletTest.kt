@@ -77,7 +77,7 @@ class TableViewModelExitAndWalletTest {
         vm.onHumanAction(Action(ActionType.FOLD))
         runCurrent()
         assertThat(vm.state.value.pendingShowdown).isNotNull()
-        assertThat(vm.autoNextCountdown.value).isEqualTo(3)
+        assertThat(vm.autoNextCountdown.value).isEqualTo(5)
 
         val canExitImmediately = vm.requestExitAfterHand()
         assertThat(canExitImmediately).isTrue()

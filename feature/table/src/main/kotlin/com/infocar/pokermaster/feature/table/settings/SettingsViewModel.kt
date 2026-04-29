@@ -95,6 +95,25 @@ class SettingsViewModel @Inject constructor(
         settingsRepo.setUseImageCards(enabled)
     }
 
+    val selfLimit: StateFlow<SelfLimitSettings> = settingsRepo.selfLimit
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5_000),
+            initialValue = SelfLimitSettings.Default,
+        )
+
+    fun setBreakReminderMinutes(minutes: Int) = viewModelScope.launch {
+        settingsRepo.setSelfLimit(selfLimit.value.copy(breakReminderMinutes = minutes))
+    }
+
+    fun setDailyHandLimit(hands: Int) = viewModelScope.launch {
+        settingsRepo.setSelfLimit(selfLimit.value.copy(dailyHandLimit = hands))
+    }
+
+    fun setDailySessionMinutes(minutes: Int) = viewModelScope.launch {
+        settingsRepo.setSelfLimit(selfLimit.value.copy(dailySessionMinutes = minutes))
+    }
+
     fun clearAllHistory() = viewModelScope.launch {
         val before = historyRepo.count()
         historyRepo.clear()

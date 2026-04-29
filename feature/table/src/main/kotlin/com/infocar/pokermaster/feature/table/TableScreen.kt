@@ -33,9 +33,13 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -86,6 +90,7 @@ import com.infocar.pokermaster.feature.table.anim.pulseFloat
 import com.infocar.pokermaster.feature.table.guide.GuideOverlay
 import com.infocar.pokermaster.feature.table.guide.GuideSettings
 import com.infocar.pokermaster.feature.table.guide.GuideStep
+import com.infocar.pokermaster.feature.table.settings.LimitTriggerKind
 import com.infocar.pokermaster.feature.table.settings.SettingsRepository
 import com.infocar.pokermaster.feature.table.sfx.BgmManager
 import com.infocar.pokermaster.feature.table.sfx.HapticManager
@@ -142,11 +147,13 @@ fun TableScreen(
     val lastActions by viewModel.lastActions.collectAsState()
     val exitRequested by viewModel.exitRequested.collectAsState()
     val buyInRejected by viewModel.buyInRejected.collectAsState()
+    val recoveryState by viewModel.recoveryState.collectAsState()
+    val context = LocalContext.current
 
-    // 3초 프리딜 — 카드 / 액션바 / NPC tick 까지 함께 막아 준비 시간 확보.
+    // 카드 슬라이드인 동안 액션바/NPC tick 잠금 — UI 적응 시간 확보.
     var dealReady by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) {
-        delay(3_000L)
+        delay(1_200L)
         dealReady = true
     }
     val displayState = remember(state, dealReady) {
@@ -176,17 +183,16 @@ fun TableScreen(
         }
     }
 
+    // 첫 백키: "이번 핸드 끝나고 나가기" 큐잉 (ExitQueuedBadge 노출).
+    // 두 번째 백키 (이미 큐잉된 상태): 즉시 강제 종료.
     BackHandler {
-        onExitRequested()
-    }
-
-    // 게임 오버 시 정산 애니 2초 → settle 동기 await → 로비 복귀.
-    LaunchedEffect(gameOver) {
-        if (gameOver != null) {
-            delay(2_000L)
+        if (exitRequested) {
             onExitSettled()
+        } else {
+            onExitRequested()
         }
     }
+
     LaunchedEffect(exitRequested, state.pendingShowdown, gameOver) {
         if (exitRequested && (state.pendingShowdown != null || gameOver != null)) {
             delay(1_200L)
@@ -194,13 +200,23 @@ fun TableScreen(
         }
     }
     LaunchedEffect(buyInRejected) {
-        if (buyInRejected != null) {
-            onExit()
+        val rejected = buyInRejected ?: return@LaunchedEffect
+        android.widget.Toast.makeText(
+            context,
+            "잔고가 부족해 테이블에 입장할 수 없습니다 (필요 ${ChipFormat.format(rejected.required)}, 잔고 ${ChipFormat.format(rejected.balance)}).",
+            android.widget.Toast.LENGTH_LONG,
+        ).show()
+        onExit()
+    }
+
+    // silent degrade / 안전망 알림 — VM이 emit한 1회성 메시지를 토스트로 노출.
+    LaunchedEffect(viewModel) {
+        viewModel.uiMessages.collect { msg ->
+            android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT).show()
         }
     }
 
-    // SFX/Haptic — Sprint2-G Phase 3 + Sprint3-A DataStore.
-    val context = LocalContext.current
+    // SFX/Haptic — DataStore 기반.
     val settingsRepo = remember(context) { SettingsRepository(context) }
     val scope = rememberCoroutineScope()
     val haptic = remember(context) { HapticManager(context) }
@@ -221,8 +237,112 @@ fun TableScreen(
     }
     DisposableEffect(sound) { onDispose { sound.release() } }
     val sfxPolicy by settingsRepo.sfxPolicy.collectAsState(initial = SfxPolicy.Default)
+    val selfLimit by settingsRepo.selfLimit.collectAsState(
+        initial = com.infocar.pokermaster.feature.table.settings.SelfLimitSettings.Default,
+    )
 
-    // 잔여9-BGM: BGM 매니저. 자산 (raw/bgm_table) 미설치 시 silent — 자동으로 안 재생.
+    // 책임 있는 게임: 일일 누적 핸드/시간 추적 (DataStore 영속 — 자정 넘으면 자동 리셋).
+    val dailyUsage by settingsRepo.dailyUsage.collectAsState(
+        initial = com.infocar.pokermaster.feature.table.settings.DailyUsage(
+            date = "",
+            hands = 0,
+            playMinutes = 0,
+        ),
+    )
+    // 한도 트리거 종류 — 한도별로 dismiss 상태를 분리해서 재트리거 방지.
+    val limitTrigger = remember { mutableStateOf<LimitTriggerKind?>(null) }
+    var handLimitDismissed by remember { mutableStateOf(false) }
+    var timeLimitDismissed by remember { mutableStateOf(false) }
+
+    // 한도 설정값 변경 시 dismiss 상태 리셋 — 사용자가 더 큰 값으로 재설정하면 다시 알림.
+    LaunchedEffect(selfLimit.dailyHandLimit) { handLimitDismissed = false }
+    LaunchedEffect(selfLimit.dailySessionMinutes) { timeLimitDismissed = false }
+
+    // 핸드 변화 감지 → DataStore 에 delta 누적. handIndex 점프(예: 재시작) 안전.
+    // UI 가 읽지 않는 holder — recomposition 트리거 회피용 단순 mutable 객체.
+    val lastTrackedHandIndex = remember { object { var value: Long = state.handIndex } }
+    LaunchedEffect(state.handIndex) {
+        val delta = (state.handIndex - lastTrackedHandIndex.value).toInt()
+        if (delta > 0) {
+            settingsRepo.addDailyHands(delta)
+            lastTrackedHandIndex.value = state.handIndex
+        }
+    }
+    // 누적 시간 — 한도가 설정된 경우에만 측정 (idle write 회피).
+    LaunchedEffect(selfLimit.dailySessionMinutes) {
+        if (selfLimit.dailySessionMinutes <= 0) return@LaunchedEffect
+        while (true) {
+            delay(60_000L)
+            settingsRepo.addDailyMinutes(1)
+        }
+    }
+
+    LaunchedEffect(selfLimit.breakReminderMinutes) {
+        val minutes = selfLimit.breakReminderMinutes
+        if (minutes <= 0) return@LaunchedEffect
+        while (true) {
+            delay(minutes * 60_000L)
+            // 핸드 종료/게임 오버 화면에 떠 있으면 알림 skip — 이미 사용자가 정리 중.
+            if (state.pendingShowdown != null || gameOver != null) continue
+            android.widget.Toast.makeText(
+                context,
+                "${minutes}분이 경과했어요. 잠시 쉬어가는 건 어떨까요? 🌿",
+                android.widget.Toast.LENGTH_LONG,
+            ).show()
+        }
+    }
+    // 일일 핸드 한도 도달 — 영속 누적 기준. 사용자가 한 번 dismiss했으면 같은 한도에서 재트리거 X.
+    LaunchedEffect(dailyUsage.hands, selfLimit.dailyHandLimit, handLimitDismissed) {
+        if (handLimitDismissed) return@LaunchedEffect
+        if (selfLimit.dailyHandLimit > 0 && dailyUsage.hands >= selfLimit.dailyHandLimit) {
+            limitTrigger.value = LimitTriggerKind.Hand(
+                limit = selfLimit.dailyHandLimit,
+                current = dailyUsage.hands,
+            )
+        }
+    }
+    // 일일 시간 한도 도달 — 영속 누적 기준. dismiss 후 재트리거 X.
+    LaunchedEffect(dailyUsage.playMinutes, selfLimit.dailySessionMinutes, timeLimitDismissed) {
+        if (timeLimitDismissed) return@LaunchedEffect
+        if (selfLimit.dailySessionMinutes > 0 && dailyUsage.playMinutes >= selfLimit.dailySessionMinutes) {
+            limitTrigger.value = LimitTriggerKind.Time(
+                limit = selfLimit.dailySessionMinutes,
+                current = dailyUsage.playMinutes,
+            )
+        }
+    }
+    limitTrigger.value?.let { kind ->
+        AlertDialog(
+            onDismissRequest = {},
+            title = { Text("휴식이 필요해요", fontWeight = FontWeight.Bold) },
+            text = { Text(kind.message) },
+            confirmButton = {
+                Button(onClick = {
+                    when (kind) {
+                        is LimitTriggerKind.Hand -> handLimitDismissed = true
+                        is LimitTriggerKind.Time -> timeLimitDismissed = true
+                    }
+                    limitTrigger.value = null
+                    onExitRequested()
+                }) {
+                    Text("로비로 이동")
+                }
+            },
+            dismissButton = {
+                OutlinedButton(onClick = {
+                    when (kind) {
+                        is LimitTriggerKind.Hand -> handLimitDismissed = true
+                        is LimitTriggerKind.Time -> timeLimitDismissed = true
+                    }
+                    limitTrigger.value = null
+                }) {
+                    Text("계속 플레이")
+                }
+            },
+        )
+    }
+
+    //BGM 매니저. 자산 (raw/bgm_table) 미설치 시 silent — 자동으로 안 재생.
     val bgm = remember(context) { BgmManager(context) }
     DisposableEffect(bgm) { onDispose { bgm.release() } }
     LaunchedEffect(sfxPolicy.bgmEnabled) {
@@ -234,18 +354,28 @@ fun TableScreen(
         }
     }
 
-    // Phase1: 인간 액션 디스패처 — SFX/Haptic 은 viewModel.actionEvent collect 로 단일화.
+    //인간 액션 디스패처 — SFX/Haptic 은 viewModel.actionEvent collect 로 단일화.
     val onHumanActionWithSfx: OnAction = { action -> viewModel.onHumanAction(action) }
 
-    // Phase1: 인간/NPC 액션 통합 SFX/Haptic. NPC tick 도 동일 ActionEvent 흐름으로 처리되어
+    val hapticEnabled = sfxPolicy.hapticEnabled
+    val onSliderTick: () -> Unit = remember(haptic, hapticEnabled) {
+        { if (hapticEnabled) haptic.onTick() }
+    }
+    val onSliderConfirmHaptic: () -> Unit = remember(haptic, hapticEnabled) {
+        { if (hapticEnabled) haptic.onChipCommit() }
+    }
+
+    //인간/NPC 액션 통합 SFX/Haptic. NPC tick 도 동일 ActionEvent 흐름으로 처리되어
     // 무음 NPC 문제 해소. 햅틱은 사용자 손이 닿은 인간 액션에만 (UX 관행), 단 SFX 는 둘 다.
     LaunchedEffect(viewModel, sfxPolicy) {
         viewModel.actionEvent.collect { event ->
             if (sfxPolicy.hapticEnabled && event.isHuman) {
                 when (event.type) {
-                    ActionType.RAISE, ActionType.ALL_IN, ActionType.BET,
+                    ActionType.ALL_IN -> haptic.onDoubleClick()
+                    ActionType.BET, ActionType.RAISE,
                     ActionType.COMPLETE, ActionType.BRING_IN -> haptic.onChipCommit()
-                    else -> haptic.onAction()
+                    ActionType.CHECK, ActionType.FOLD -> haptic.onTick()
+                    ActionType.CALL, ActionType.DECLARE, ActionType.SAVE_LIFE -> haptic.onAction()
                 }
             }
             if (sfxPolicy.soundEnabled) {
@@ -262,7 +392,7 @@ fun TableScreen(
         }
     }
 
-    // Phase1: 카드 딜링 stagger — 한 스트릿당 1회 → 좌석/카드 수 만큼 짧게 연속 재생.
+    //카드 딜링 stagger — 한 스트릿당 1회 → 좌석/카드 수 만큼 짧게 연속 재생.
     // FLOP=3장, TURN/RIVER=1장, PREFLOP/THIRD/FOURTH~SEVENTH = 활성 좌석 수 만큼.
     LaunchedEffect(state.street, dealReady) {
         if (!dealReady) return@LaunchedEffect
@@ -281,21 +411,24 @@ fun TableScreen(
         }
     }
 
-    // 잔여9-1: 본인 차례 30초 무응답 alert. 30초 경과 후 5초 간격으로 가벼운 햅틱 TICK.
+    //본인 차례 30초 무응답 alert. 30초 경과 후 5초 간격 햅틱 TICK 최대 3회.
     // toAct 바뀌면 LaunchedEffect 재시작 → 이전 alert 자동 취소. pendingShowdown 시 skip.
+    // 60초 시점에 자동 폴드(콜 봉착)/체크(콜 없음) → 영구 멈춤 방지.
     LaunchedEffect(state.toActSeat, state.pendingShowdown) {
         val toAct = state.toActSeat ?: return@LaunchedEffect
         if (state.pendingShowdown != null) return@LaunchedEffect
         val player = state.players.firstOrNull { it.seat == toAct } ?: return@LaunchedEffect
         if (!player.isHuman) return@LaunchedEffect
         delay(30_000L)
-        while (true) {
+        repeat(3) {
             if (sfxPolicy.hapticEnabled) haptic.onAction()
             delay(5_000L)
         }
+        // 자리비움 자동 정리 — 콜 봉착이면 폴드, 아니면 체크.
+        viewModel.onTimeoutAutoFold()
     }
 
-    // Phase1: 게임 오버 bust 햅틱 — 본인 패배(파산) 시 한 번 강하게.
+    //게임 오버 bust 햅틱 — 본인 패배(파산) 시 한 번 강하게.
     LaunchedEffect(gameOver, sfxPolicy) {
         val info = gameOver ?: return@LaunchedEffect
         if (sfxPolicy.hapticEnabled && !info.isHumanWinner) {
@@ -303,7 +436,7 @@ fun TableScreen(
         }
     }
 
-    // Phase1: PotSweep + HandWin — 본인 승리 vs NPC 승리 차등 (volume + onWin 햅틱).
+    //PotSweep + HandWin — 본인 승리 vs NPC 승리 차등 (volume + onWin 햅틱).
     val showdownActive = state.pendingShowdown != null
     LaunchedEffect(showdownActive) {
         if (!showdownActive) return@LaunchedEffect
@@ -320,12 +453,12 @@ fun TableScreen(
         }
     }
 
-    // Guide overlay — Sprint2-G Phase 4 + Sprint3-A DataStore.
+    // Guide overlay — DataStore 기반.
     val guideSettings by settingsRepo.guideSettings.collectAsState(initial = GuideSettings.Default)
     var currentGuideStep by remember { mutableStateOf<GuideStep?>(null) }
     // 최초 guideSettings 도달 시 한 번만 초기 step 결정 (이후 토글은 명시적으로 처리).
     LaunchedEffect(Unit) {
-        // M7-BugFix: DataStore IO 예외(디스크 풀/파일 손상) 가 composable scope 로 전파되면
+        //DataStore IO 예외(디스크 풀/파일 손상) 가 composable scope 로 전파되면
         // 앱이 죽음. runCatching + Default 폴백으로 격리.
         val first = runCatching { settingsRepo.guideSettings.first() }
             .getOrDefault(GuideSettings.Default)
@@ -341,6 +474,88 @@ fun TableScreen(
     val a11ySettings by settingsRepo.a11ySettings.collectAsState(initial = A11ySettings.Default)
     // UI-Images: opt-in 이미지 카드 모드 (CC0 PNG). 기본 false → 기존 Canvas 경로.
     val useImageCards by settingsRepo.useImageCards.collectAsState(initial = false)
+
+    // NPC tick 예외 회복 다이얼로그.
+    recoveryState?.let { rec ->
+        AlertDialog(
+            onDismissRequest = {},
+            title = { Text("AI 오류", fontWeight = FontWeight.Bold) },
+            text = {
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Text(rec.message, style = MaterialTheme.typography.bodyLarge)
+                    Text(
+                        "원인: ${rec.cause}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = HangameColors.TextMuted,
+                    )
+                }
+            },
+            confirmButton = {
+                Button(onClick = {
+                    viewModel.recoverByDiscardingHand()
+                }) {
+                    Text("핸드 정리 후 계속")
+                }
+            },
+            dismissButton = {
+                OutlinedButton(onClick = {
+                    viewModel.dismissRecovery()
+                    onExitRequested()
+                }) {
+                    Text("로비로")
+                }
+            },
+        )
+    }
+
+    // 게임 오버 결과 다이얼로그.
+    gameOver?.let { info ->
+        val mePlayer = state.players.firstOrNull { it.isHuman }
+        val finalChips = mePlayer?.chips ?: 0L
+        val net = finalChips - humanBuyIn
+        AlertDialog(
+            onDismissRequest = {},
+            title = {
+                Text(
+                    text = if (info.isHumanWinner) "🏆 게임 승리" else "게임 종료",
+                    fontWeight = FontWeight.Black,
+                    color = if (info.isHumanWinner) HangameColors.PotValue else HangameColors.TextPrimary,
+                )
+            },
+            text = {
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Text(
+                        text = if (info.isHumanWinner) "축하합니다! 모든 NPC를 파산시켰습니다."
+                        else "${info.winnerNickname} 의 승리. 다시 도전해보세요.",
+                        style = MaterialTheme.typography.bodyLarge,
+                    )
+                    Text(
+                        text = "최종 칩: ${ChipFormat.format(finalChips)}",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = HangameColors.TextChip,
+                    )
+                    if (humanBuyIn > 0L) {
+                        val sign = if (net >= 0L) "+" else "-"
+                        Text(
+                            text = "내 결과: $sign${ChipFormat.format(kotlin.math.abs(net))}",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = if (net >= 0L) HangameColors.TextLime else HangameColors.TextDanger,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                Button(onClick = onExitSettled) {
+                    Text(text = "로비로")
+                }
+            },
+        )
+    }
 
     CompositionLocalProvider(
         LocalHighContrastCards provides a11ySettings.highContrastCards,
@@ -360,9 +575,12 @@ fun TableScreen(
             guideEnabled = guideSettings.guideModeEnabled,
             onToggleGuide = onToggleGuide,
             autoNextCountdown = autoNextCountdown,
+            onPauseAutoNext = viewModel::pauseAutoNext,
             gameOver = gameOver,
             lastActions = lastActions,
             dealReady = dealReady,
+            onSliderTick = onSliderTick,
+            onSliderConfirmHaptic = onSliderConfirmHaptic,
         )
         AnimatedVisibility(
             visible = !dealReady,
@@ -409,11 +627,16 @@ internal fun TableContent(
     guideEnabled: Boolean = true,
     onToggleGuide: () -> Unit = {},
     autoNextCountdown: Int? = null,
+    onPauseAutoNext: () -> Unit = {},
     gameOver: GameOverInfo? = null,
     lastActions: Map<Int, String> = emptyMap(),
     exitRequested: Boolean = false,
-    /** 진입 직후 3초 딜러 준비 대기. false 면 액션바/Waiting 둘 다 숨긴다. */
+    /** 진입 직후 1.2초 딜러 준비 대기. false 면 액션바/Waiting 둘 다 숨긴다. */
     dealReady: Boolean = true,
+    /** 베팅 슬라이더 drag tick 햅틱. 호출자가 SfxPolicy 게이트 후 실행. */
+    onSliderTick: () -> Unit = {},
+    /** 베팅 슬라이더 확정 햅틱 (onChipCommit). 호출자가 SfxPolicy 게이트 후 실행. */
+    onSliderConfirmHaptic: () -> Unit = {},
 ) {
     var menuOpen by remember { mutableStateOf(false) }
     var confirmAllIn by remember { mutableStateOf<Pair<ActionType, Long>?>(null) }
@@ -456,17 +679,16 @@ internal fun TableContent(
                 isShowdown = isShowdown,
                 winnerSeats = winnerSeats,
                 lastActions = lastActions,
-                centerContent = {},
+                centerContent = {
+                    TableCenterContent(
+                        state = state,
+                        modifier = Modifier.padding(horizontal = 12.dp),
+                    )
+                },
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(horizontal = 48.dp)
-                    .padding(top = 8.dp, bottom = 124.dp),
-            )
-            TableCenterContent(
-                state = state,
-                modifier = Modifier
-                    .align(Alignment.Center)
-                    .padding(horizontal = 24.dp),
+                    .padding(horizontal = 16.dp)
+                    .padding(top = 8.dp, bottom = 92.dp),
             )
 
             // 4) 우상단 헤더 — 블라인드 정보 + 햄버거 메뉴 + 나가기 (좌상단 제거).
@@ -482,6 +704,9 @@ internal fun TableContent(
                     IconButton(onClick = { menuOpen = true }) {
                         Icon(Icons.Default.Menu, contentDescription = "메뉴", tint = Color.White)
                     }
+                    val canSurrender = state.toActSeat == humanSeat &&
+                        state.pendingShowdown == null &&
+                        dealReady
                     InGameMenuDropdown(
                         expanded = menuOpen,
                         onDismiss = { menuOpen = false },
@@ -490,6 +715,8 @@ internal fun TableContent(
                         exitRequested = exitRequested,
                         guideEnabled = guideEnabled,
                         onToggleGuide = onToggleGuide,
+                        mode = state.mode,
+                        canSurrender = canSurrender,
                     )
                 }
                 IconButton(
@@ -544,31 +771,31 @@ internal fun TableContent(
                             .widthIn(max = 920.dp)
                             .fillMaxWidth()
                             .padding(horizontal = 16.dp, vertical = 8.dp),
+                        onSliderTick = onSliderTick,
+                        onSliderConfirmHaptic = onSliderConfirmHaptic,
                     )
                 }
                 state.pendingShowdown == null && gameOver == null && dealReady -> {
-                    WaitingForNpc(modifier = Modifier.align(Alignment.BottomCenter).padding(12.dp))
+                    val toActPlayer = state.players.firstOrNull { it.seat == state.toActSeat }
+                    WaitingForNpc(
+                        nickname = toActPlayer?.nickname,
+                        modifier = Modifier.align(Alignment.BottomCenter).padding(12.dp),
+                    )
                 }
             }
 
             if (state.pendingShowdown != null && handEndData != null) {
+                // 핸드 종료: WinnerBanner 단독 — 승자/지급액/핸드/베스트5장/다음 버튼 통합.
                 WinnerBanner(
                     data = handEndData,
                     humanSeat = humanSeat,
                     autoNextCountdown = autoNextCountdown,
-                    modifier = Modifier
-                        .align(Alignment.TopCenter)
-                        .padding(top = 64.dp),
-                )
-                HandEndSheet(
-                    data = handEndData,
                     onNext = onNextHand,
-                    onInsights = {},
-                    autoNextCountdown = autoNextCountdown,
+                    onPauseAutoNext = onPauseAutoNext,
                     modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .widthIn(max = 640.dp)
-                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                        .align(Alignment.Center)
+                        .widthIn(max = 460.dp)
+                        .padding(horizontal = 16.dp),
                 )
             }
 
@@ -578,9 +805,14 @@ internal fun TableContent(
 
         // 베팅 2단계 확인 (Phase-C 구성)
         confirmAllIn?.let { (type, amount) ->
+            val mePlayer = state.players.firstOrNull { it.seat == humanSeat }
+            val delta = mePlayer?.let {
+                (amount - it.committedThisStreet).coerceAtLeast(0L).coerceAtMost(it.chips)
+            } ?: 0L
             BettingConfirmDialog(
                 type = type,
                 amount = amount,
+                deltaChips = delta,
                 onConfirm = {
                     confirmAllIn = null
                     onAction(Action(type, amount))
@@ -655,9 +887,9 @@ private fun MultiSeatLayout(
         val payout = state.pendingShowdown?.payouts?.get(player.seat)?.takeIf { it > 0L }
         val viewerPlayer = TableUiMapper.mapPlayerForViewer(player, humanSeat, state.street)
         val declared = state.declarations[player.seat]
-        // DECLARE 단계 중 상대 좌석 인디케이터 — 실 선언이 들어왔으면 lock(잠김), 아직이면 ? (생각 중).
+        // DECLARE 단계 중 상대 좌석 인디케이터 — 실 선언이 들어왔으면 "선언 완료", 아직이면 "결정 중".
         val declareIndicator: String? = if (state.street == Street.DECLARE && player.seat != humanSeat) {
-            if (declared != null) "잠김" else "?"
+            if (declared != null) "선언 완료" else "결정 중"
         } else null
         // SHOWDOWN/이후: 본인 선언이거나 마스크 해제된 좌석은 한국어 라벨로 노출.
         val declarationBadge: String? = when {
@@ -706,15 +938,15 @@ private fun MultiSeatLayout(
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 Box(
-                    Modifier.fillMaxWidth().weight(0.32f),
+                    Modifier.fillMaxWidth().weight(0.30f),
                     contentAlignment = Alignment.Center,
                 ) { seat(npcs[0]) }
                 Box(
-                    Modifier.fillMaxWidth().weight(0.36f),
+                    Modifier.fillMaxWidth().weight(0.40f),
                     contentAlignment = Alignment.Center,
                 ) { centerContent() }
                 Box(
-                    Modifier.fillMaxWidth().weight(0.32f),
+                    Modifier.fillMaxWidth().weight(0.30f),
                     contentAlignment = Alignment.Center,
                 ) { seat(human) }
             }
@@ -726,20 +958,20 @@ private fun MultiSeatLayout(
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 Box(
-                    Modifier.fillMaxWidth().weight(0.32f),
+                    Modifier.fillMaxWidth().weight(0.28f),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(48.dp)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(20.dp)) {
                         seat(npcs[0])
                         seat(npcs[1])
                     }
                 }
                 Box(
-                    Modifier.fillMaxWidth().weight(0.36f),
+                    Modifier.fillMaxWidth().weight(0.42f),
                     contentAlignment = Alignment.Center,
                 ) { centerContent() }
                 Box(
-                    Modifier.fillMaxWidth().weight(0.32f),
+                    Modifier.fillMaxWidth().weight(0.30f),
                     contentAlignment = Alignment.Center,
                 ) { seat(human) }
             }
@@ -751,11 +983,11 @@ private fun MultiSeatLayout(
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 Box(
-                    Modifier.fillMaxWidth().weight(0.28f),
+                    Modifier.fillMaxWidth().weight(0.26f),
                     contentAlignment = Alignment.Center,
                 ) { seat(npcs[1]) }
                 Box(
-                    Modifier.fillMaxWidth().weight(0.40f),
+                    Modifier.fillMaxWidth().weight(0.42f),
                 ) {
                     Row(
                         Modifier.fillMaxSize(),
@@ -835,7 +1067,7 @@ private fun TableCenterContent(state: GameState, modifier: Modifier = Modifier) 
         Column(
             modifier = modifier,
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             CenterPotDisplay(pot = TableUiMapper.totalPot(state))
             CardCommunityRow(community = state.community)
@@ -867,18 +1099,18 @@ private fun CenterPotDisplay(pot: Long, modifier: Modifier = Modifier) {
     ) {
         Text(
             text = "총 팟",
-            fontSize = 10.sp,
+            fontSize = 12.sp,
             color = HangameColors.PotLabel,
             fontWeight = FontWeight.SemiBold,
         )
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(5.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            Text(text = "🪙", fontSize = 14.sp)
+            Text(text = "🪙", fontSize = 16.sp)
             Text(
                 text = ChipFormat.format(pot),
-                fontSize = 18.sp,
+                fontSize = 22.sp,
                 color = HangameColors.PotValue,
                 fontWeight = FontWeight.Bold,
                 maxLines = 1,
@@ -918,20 +1150,20 @@ private fun StreetLabel(street: Street) {
         border = BorderStroke(0.5.dp, HangameColors.StudAccent.copy(alpha = 0.55f)),
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(5.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             Text(
                 text = ko,
-                fontSize = 13.sp,
+                fontSize = 15.sp,
                 color = HangameColors.StudAccent,
                 fontWeight = FontWeight.Black,
             )
             if (en != null) {
                 Text(
                     text = en,
-                    fontSize = 9.sp,
+                    fontSize = 11.sp,
                     color = HangameColors.TextMuted,
                     fontWeight = FontWeight.Medium,
                 )
@@ -959,19 +1191,19 @@ private fun BlindInfoBadge(state: GameState) {
     else "BB ${ChipFormat.format(state.config.bigBlind)}"
     val borderColor = if (isStud) HangameColors.StudAccent.copy(alpha = 0.55f) else HangameColors.SeatBorder
     Surface(
-        shape = RoundedCornerShape(8.dp),
+        shape = RoundedCornerShape(10.dp),
         color = HangameColors.HeaderBgRight.copy(alpha = 0.85f),
         border = BorderStroke(if (isStud) 1.dp else 0.5.dp, borderColor),
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp),
+            modifier = Modifier.padding(horizontal = 11.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             if (modePrefix != null) {
                 Text(
                     text = modePrefix,
-                    fontSize = 11.sp,
+                    fontSize = 12.sp,
                     color = HangameColors.StudAccent,
                     fontWeight = FontWeight.Black,
                     maxLines = 1,
@@ -979,13 +1211,13 @@ private fun BlindInfoBadge(state: GameState) {
                 )
                 Text(
                     text = "·",
-                    fontSize = 11.sp,
+                    fontSize = 12.sp,
                     color = HangameColors.TextMuted,
                 )
             }
             Text(
                 text = left,
-                fontSize = 11.sp,
+                fontSize = 12.sp,
                 color = HangameColors.TextSecondary,
                 fontWeight = FontWeight.SemiBold,
                 maxLines = 1,
@@ -993,12 +1225,12 @@ private fun BlindInfoBadge(state: GameState) {
             )
             Text(
                 text = "|",
-                fontSize = 11.sp,
+                fontSize = 12.sp,
                 color = HangameColors.TextMuted,
             )
             Text(
                 text = right,
-                fontSize = 11.sp,
+                fontSize = 12.sp,
                 color = HangameColors.TextSecondary,
                 fontWeight = FontWeight.SemiBold,
                 maxLines = 1,
@@ -1009,14 +1241,15 @@ private fun BlindInfoBadge(state: GameState) {
 }
 
 @Composable
-private fun WaitingForNpc(modifier: Modifier = Modifier) {
+private fun WaitingForNpc(nickname: String? = null, modifier: Modifier = Modifier) {
     Surface(
         modifier = modifier,
         shape = RoundedCornerShape(20.dp),
         color = MaterialTheme.colorScheme.surfaceVariant,
     ) {
         Text(
-            text = stringResource(id = R.string.waiting_for_npc),
+            text = if (nickname.isNullOrBlank()) stringResource(id = R.string.waiting_for_npc)
+            else "${nickname} 가 생각 중...",
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
             style = MaterialTheme.typography.labelLarge,
         )
@@ -1084,6 +1317,8 @@ private fun WinnerBanner(
     data: HandEndViewData,
     humanSeat: Int,
     autoNextCountdown: Int?,
+    onNext: () -> Unit,
+    onPauseAutoNext: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val allWinnerSeats = data.pots
@@ -1098,10 +1333,7 @@ private fun WinnerBanner(
     val winnerCategory = data.handInfos[primaryWinnerSeat] ?: ""
     val winnerPayout = data.payoutsBySeat[primaryWinnerSeat] ?: 0L
     val isHumanWinner = primaryWinnerSeat == humanSeat
-    val others = (allWinnerSeats - primaryWinnerSeat)
-        .mapNotNull { data.nicknameBySeat[it] }
-        .joinToString(", ")
-        .ifEmpty { null }
+    val winnerBest5 = data.bestFiveBySeat[primaryWinnerSeat].orEmpty()
     val splitPot = data.pots.firstOrNull()?.takeIf {
         data.mode == GameMode.SEVEN_STUD_HI_LO &&
             it.hiWinnerSeats.isNotEmpty() &&
@@ -1109,8 +1341,14 @@ private fun WinnerBanner(
             it.hiWinnerSeats != it.loWinnerSeats
     }
     val isHiLoSplit = splitPot != null
+    val multiWinners = (allWinnerSeats - primaryWinnerSeat)
+        .mapNotNull { seat ->
+            val nick = data.nicknameBySeat[seat] ?: return@mapNotNull null
+            val payout = data.payoutsBySeat[seat] ?: 0L
+            nick to payout
+        }
+        .takeIf { it.isNotEmpty() }
 
-    // Phase2: 본인 승리 시 더 깊고 빠른 pulse (강조). NPC 승리는 기존 톤 유지.
     val reduceMotion = LocalReduceMotion.current
     val glow = pulseFloat(
         initial = if (isHumanWinner) 0.4f else 0.55f,
@@ -1119,11 +1357,9 @@ private fun WinnerBanner(
         label = "winner-glow",
     )
 
-    // Phase2: 본인 승리 시 짧은 좌우 shake — 1.4초 동안 ±4dp 4회 wobble. reduceMotion 시 skip.
     val shake = remember { Animatable(0f) }
     LaunchedEffect(isHumanWinner, reduceMotion) {
         if (isHumanWinner && !reduceMotion) {
-            // 0 → +1 → -1 → +1 → -1 → 0 wobble.
             val keyframes = listOf(0f, 1f, -1f, 0.7f, -0.5f, 0f)
             val stepMs = 90
             for (k in keyframes) {
@@ -1132,9 +1368,13 @@ private fun WinnerBanner(
         }
     }
 
-    // visible 을 false→true 로 토글해야 AnimatedVisibility 의 enter 트랜지션이 실제로 발생.
+    // PotSweep 사운드(0ms) + 좌석 칩 카운트업(700ms) + 짧은 buffer 후 등장.
+    // 사용자가 잔고 변화/팟 sweep 을 먼저 인지하고, 그 후 배너로 결과 정리.
     var visible by remember { mutableStateOf(false) }
-    LaunchedEffect(Unit) { visible = true }
+    LaunchedEffect(Unit) {
+        delay(900L)
+        visible = true
+    }
 
     AnimatedVisibility(
         visible = visible,
@@ -1144,32 +1384,62 @@ private fun WinnerBanner(
         modifier = modifier.offset { IntOffset(x = (shake.value * 4.dp.toPx()).toInt(), y = 0) },
     ) {
         Surface(
-            shape = RoundedCornerShape(18.dp),
-            color = HangameColors.PotBg.copy(alpha = 0.95f),
+            shape = RoundedCornerShape(20.dp),
+            color = HangameColors.PotBg.copy(alpha = 0.97f),
             border = BorderStroke(2.5.dp, HangameColors.PotValue.copy(alpha = glow)),
-            shadowElevation = 16.dp,
+            shadowElevation = 20.dp,
         ) {
             Column(
-                modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 24.dp, vertical = 20.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(4.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    Text(text = "🏆", fontSize = 26.sp)
+                // 1) 큰 트로피
+                Text(text = "🏆", fontSize = 48.sp)
+
+                // 2) 승자 헤드라인 — "YOU WIN" / "{닉네임} 승" / "하이/로우 분할"
+                Text(
+                    text = when {
+                        isHiLoSplit -> "하이 / 로우 분할"
+                        isHumanWinner -> stringResource(id = R.string.winner_you_win)
+                        else -> stringResource(id = R.string.winner_name_wins, winnerName)
+                    },
+                    fontSize = 30.sp,
+                    color = HangameColors.PotValue,
+                    fontWeight = FontWeight.Black,
+                    textAlign = TextAlign.Center,
+                )
+
+                // 3) 본인 승리시 닉네임 부제, NPC 승리시 본인의 net 결과 미니 라벨
+                if (isHumanWinner) {
                     Text(
-                        text = when {
-                            isHiLoSplit -> "하이/로우 분할"
-                            isHumanWinner -> stringResource(id = R.string.winner_you_win)
-                            else -> stringResource(id = R.string.winner_name_wins, winnerName)
-                        },
-                        fontSize = 22.sp,
-                        color = HangameColors.PotValue,
-                        fontWeight = FontWeight.Black,
+                        text = winnerName,
+                        fontSize = 14.sp,
+                        color = HangameColors.TextSecondary,
+                        fontWeight = FontWeight.SemiBold,
                     )
                 }
+
+                // 4) 한국어 핸드 카테고리 — 큰 강조
+                if (winnerCategory.isNotEmpty()) {
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = HangameColors.HeaderBgRight.copy(alpha = 0.6f),
+                    ) {
+                        Text(
+                            text = winnerCategory,
+                            modifier = Modifier.padding(horizontal = 18.dp, vertical = 6.dp),
+                            fontSize = 22.sp,
+                            color = HangameColors.TextPrimary,
+                            fontWeight = FontWeight.Black,
+                            textAlign = TextAlign.Center,
+                        )
+                    }
+                }
+
+                // 5) HiLo 분할 시 hi/lo 승자 표시
                 if (splitPot != null) {
                     val hiNames = splitPot.hiWinnerSeats
                         .mapNotNull { data.nicknameBySeat[it] }
@@ -1177,68 +1447,111 @@ private fun WinnerBanner(
                     val loNames = splitPot.loWinnerSeats
                         .mapNotNull { data.nicknameBySeat[it] }
                         .joinToString(", ")
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                         Text(
                             text = "Hi · $hiNames",
-                            fontSize = 12.sp,
+                            fontSize = 13.sp,
                             color = HangameColors.HiLoHiBadge,
                             fontWeight = FontWeight.SemiBold,
                         )
                         Text(
                             text = "Lo · $loNames",
-                            fontSize = 12.sp,
+                            fontSize = 13.sp,
                             color = HangameColors.HiLoLoBadge,
                             fontWeight = FontWeight.SemiBold,
                         )
                     }
                 }
-                if (isHumanWinner) {
-                    Text(
-                        text = winnerName,
-                        fontSize = 13.sp,
-                        color = HangameColors.TextSecondary,
-                        fontWeight = FontWeight.SemiBold,
-                    )
+
+                // 6) 베스트 5장 카드 — 승자가 어떤 패로 이겼는지 시각화
+                if (winnerBest5.isNotEmpty()) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        winnerBest5.take(5).forEach { card ->
+                            PlayingCard(
+                                card = card,
+                                faceDown = false,
+                                width = 38.dp,
+                                height = 54.dp,
+                            )
+                        }
+                    }
                 }
-                if (winnerCategory.isNotEmpty()) {
-                    Text(
-                        text = winnerCategory,
-                        fontSize = 16.sp,
-                        color = HangameColors.TextPrimary,
-                        fontWeight = FontWeight.Bold,
-                    )
-                }
+
+                // 7) 지급 칩 — 가장 큰 강조
                 if (winnerPayout > 0L) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
-                        Text(text = "🪙", fontSize = 16.sp)
+                        Text(text = "🪙", fontSize = 24.sp)
                         Text(
-                            text = stringResource(
-                                id = R.string.winner_payout,
-                                ChipFormat.format(winnerPayout),
-                            ),
-                            fontSize = 18.sp,
+                            text = "+${ChipFormat.format(winnerPayout)}",
+                            fontSize = 32.sp,
                             color = if (isHumanWinner) HangameColors.TextLime else HangameColors.PotValue,
-                            fontWeight = FontWeight.ExtraBold,
+                            fontWeight = FontWeight.Black,
                         )
                     }
                 }
-                if (others != null) {
+
+                // 8) 다중 승자(사이드팟) — 작은 라인
+                if (multiWinners != null) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        multiWinners.forEach { (nick, amt) ->
+                            Text(
+                                text = "$nick +${ChipFormat.format(amt)}",
+                                fontSize = 12.sp,
+                                color = HangameColors.TextMuted,
+                            )
+                        }
+                    }
+                }
+
+                // 9) Uncalled 환급 (있으면)
+                if (data.uncalledBySeat.isNotEmpty()) {
+                    val uncalledLine = data.uncalledBySeat.entries
+                        .sortedBy { it.key }
+                        .joinToString("  ·  ") { (seat, chips) ->
+                            val nick = data.nicknameBySeat[seat] ?: "#$seat"
+                            "$nick 환급 +${ChipFormat.format(chips)}"
+                        }
                     Text(
-                        text = stringResource(id = R.string.winner_split_with, others),
+                        text = uncalledLine,
                         fontSize = 11.sp,
                         color = HangameColors.TextMuted,
                     )
                 }
-                if (autoNextCountdown != null) {
-                    Text(
-                        text = stringResource(id = R.string.auto_next_in, autoNextCountdown),
-                        fontSize = 11.sp,
-                        color = HangameColors.PotLabel,
-                        fontWeight = FontWeight.Medium,
-                    )
+
+                // 10) 액션 — "다음 핸드" + 카운트다운 / "정지"
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    if (autoNextCountdown != null) {
+                        OutlinedButton(
+                            onClick = onPauseAutoNext,
+                            modifier = Modifier.height(48.dp),
+                        ) { Text("정지", fontWeight = FontWeight.SemiBold) }
+                    }
+                    Button(
+                        onClick = onNext,
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(48.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = HangameColors.BtnCall,
+                            contentColor = Color.White,
+                        ),
+                    ) {
+                        val btnText = if (autoNextCountdown != null) {
+                            stringResource(id = R.string.hand_end_next) + " (${autoNextCountdown}s)"
+                        } else {
+                            stringResource(id = R.string.hand_end_next)
+                        }
+                        Text(text = btnText, fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
+                    }
                 }
             }
         }

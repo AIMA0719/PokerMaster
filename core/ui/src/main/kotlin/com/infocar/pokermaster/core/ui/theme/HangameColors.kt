@@ -44,6 +44,11 @@ object HangameColors {
     val TextDanger = Color(0xFFFF5252)
     val TextLime = Color(0xFFCDE940)
 
+    // ── 위험 액션 (히스토리 삭제 / AI 모델 삭제 등) ─────────────────
+    /** 위험 버튼·외곽선 — TextDanger 보다 살짝 어두워 background 위에서 대비↑. */
+    val Danger = Color(0xFFE53935)
+    val DangerDark = Color(0xFFB71C1C)
+
     // ── 상단 띠 (닉네임/칩 + 설정/나가기) ──────────────────────────
     val HeaderBgLeft = Color(0xFF0E1F3A)
     val HeaderBgRight = Color(0xFF152841)

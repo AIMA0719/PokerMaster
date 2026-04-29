@@ -85,7 +85,14 @@ fun StatsScreen(
             contentAlignment = Alignment.TopCenter,
         ) {
             if (!state.loaded) {
-                Center { Text("불러오는 중…", color = HangameColors.TextSecondary) }
+                Center {
+                    Text(
+                        "불러오는 중…",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Medium,
+                        color = HangameColors.TextSecondary,
+                    )
+                }
                 return@Box
             }
             val o = state.overview
@@ -93,7 +100,8 @@ fun StatsScreen(
                 Center {
                     Text(
                         "아직 기록된 핸드가 없어요.\n한 판 플레이하면 통계가 표시됩니다.",
-                        style = MaterialTheme.typography.bodyLarge,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Medium,
                         color = HangameColors.TextSecondary,
                     )
                 }
@@ -104,7 +112,7 @@ fun StatsScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .widthIn(max = 720.dp)
-                    .padding(12.dp)
+                    .padding(16.dp)
                     .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
@@ -126,13 +134,18 @@ private fun Center(content: @Composable () -> Unit) {
 @Composable
 private fun SummaryCard(overview: StatsOverview) {
     SectionCard("전체 요약") {
+        MetricRow("승률", formatPercent(overview.winrate), accent = true, hero = true)
+        MetricRow("누적 팟 (칩)", formatChips(overview.totalPotChips), chip = true, hero = true)
         MetricRow("총 핸드 수", overview.totalHands.toString())
         MetricRow("승리 핸드", "${overview.handsWon}")
-        MetricRow("승률", formatPercent(overview.winrate), accent = true)
-        MetricRow("누적 팟 (칩)", formatChips(overview.totalPotChips), chip = true)
         MetricRow("최대 팟 (칩)", formatChips(overview.biggestPot), chip = true)
         MetricRow("VPIP", formatPercent(overview.vpip), accent = true)
         MetricRow("PFR", formatPercent(overview.pfr), accent = true)
+        Text(
+            "• VPIP: 팟에 자발적으로 칩을 넣은 핸드 비율 (콜+레이즈)\n• PFR: 프리플롭 레이즈 비율 — 공격성 지표",
+            style = MaterialTheme.typography.labelSmall,
+            color = HangameColors.TextMuted,
+        )
     }
 }
 
@@ -145,7 +158,7 @@ private fun TrendlineCard(trend: List<Double>) {
     SectionCard("최근 ${trend.size} 핸드 승률 추세") {
         Text(
             "rolling-${StatsOverview.TREND_WINDOW} 윈도우. 50% 기준선.",
-            style = MaterialTheme.typography.labelSmall,
+            style = MaterialTheme.typography.bodySmall,
             color = HangameColors.TextMuted,
         )
         Canvas(
@@ -182,12 +195,12 @@ private fun TrendlineCard(trend: List<Double>) {
         ) {
             Text(
                 "오래된 →",
-                style = MaterialTheme.typography.labelSmall,
+                style = MaterialTheme.typography.labelMedium,
                 color = HangameColors.TextMuted,
             )
             Text(
                 "← 최근",
-                style = MaterialTheme.typography.labelSmall,
+                style = MaterialTheme.typography.labelMedium,
                 color = HangameColors.TextMuted,
             )
         }
@@ -200,16 +213,16 @@ private fun ModeBreakdownCard(overview: StatsOverview) {
         if (overview.byMode.isEmpty()) {
             Text(
                 "모드별 데이터 없음",
-                style = MaterialTheme.typography.bodySmall,
+                style = MaterialTheme.typography.bodyMedium,
                 color = HangameColors.TextSecondary,
             )
             return@SectionCard
         }
         overview.byMode.forEach { (mode, ms) ->
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text(
                     mode,
-                    style = MaterialTheme.typography.titleSmall,
+                    style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold,
                     color = HangameColors.TextLime,
                 )
@@ -231,7 +244,7 @@ private fun SectionCard(title: String, content: @Composable () -> Unit) {
             containerColor = HangameColors.SeatBg,
         ),
     ) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(
                 title,
                 style = MaterialTheme.typography.titleMedium,
@@ -245,7 +258,13 @@ private fun SectionCard(title: String, content: @Composable () -> Unit) {
 }
 
 @Composable
-private fun MetricRow(label: String, value: String, accent: Boolean = false, chip: Boolean = false) {
+private fun MetricRow(
+    label: String,
+    value: String,
+    accent: Boolean = false,
+    chip: Boolean = false,
+    hero: Boolean = false,
+) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
@@ -258,8 +277,12 @@ private fun MetricRow(label: String, value: String, accent: Boolean = false, chi
         )
         Text(
             value,
-            style = MaterialTheme.typography.bodyMedium,
-            fontWeight = FontWeight.Medium,
+            style = if (hero) {
+                MaterialTheme.typography.headlineMedium
+            } else {
+                MaterialTheme.typography.bodyMedium
+            },
+            fontWeight = if (hero) FontWeight.Bold else FontWeight.Medium,
             color = when {
                 accent -> HangameColors.TextLime
                 chip -> HangameColors.TextChip

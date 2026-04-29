@@ -56,7 +56,7 @@ fun SidePotDistribution(
         tonalElevation = 2.dp,
         border = if (anyWinners) goldBorder else null,
     ) {
-        Column(modifier = Modifier.padding(12.dp)) {
+        Column(modifier = Modifier.padding(14.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -65,19 +65,21 @@ fun SidePotDistribution(
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = label,
-                        style = MaterialTheme.typography.labelMedium,
+                        style = MaterialTheme.typography.labelLarge,
                         color = HangameColors.TextSecondary,
+                        fontWeight = FontWeight.Bold,
                     )
+                    Spacer(Modifier.height(2.dp))
                     Text(
                         text = ChipFormat.format(pot.amount),
-                        style = MaterialTheme.typography.titleMedium,
+                        style = MaterialTheme.typography.titleLarge,
                         color = HangameColors.PotValue,
                         fontWeight = FontWeight.Bold,
                     )
                 }
             }
 
-            Spacer(Modifier.height(6.dp))
+            Spacer(Modifier.height(8.dp))
 
             // 분배 시각화 분기.
             when {
@@ -101,7 +103,7 @@ fun SidePotDistribution(
                         .joinToString(", ") { nicknameBySeat[it] ?: "#$it" }
                     val half = pot.amount / 2
                     DistributionLine(prefix = "★H", names = hiNames, amount = half)
-                    Spacer(Modifier.height(2.dp))
+                    Spacer(Modifier.height(6.dp))
                     DistributionLine(prefix = "★L", names = loNames, amount = pot.amount - half)
                 }
                 pot.hiWinnerSeats.isNotEmpty() -> {
@@ -125,11 +127,11 @@ fun SidePotDistribution(
                 }
                 else -> {
                     // 자격자만 회색.
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         pot.eligibleSeats.sorted().forEach { seat ->
                             Text(
                                 text = nicknameBySeat[seat] ?: "#$seat",
-                                style = MaterialTheme.typography.labelMedium,
+                                style = MaterialTheme.typography.labelLarge,
                                 color = HangameColors.TextMuted,
                             )
                         }
@@ -161,7 +163,7 @@ private fun DistributionLine(
     ) {
         Text(
             text = "$prefix $names",
-            style = MaterialTheme.typography.labelLarge,
+            style = MaterialTheme.typography.bodyLarge,
             color = if (prefix in setOf("★HL", "★H", "★L")) {
                 color
             } else if (emphasize) {
@@ -169,14 +171,14 @@ private fun DistributionLine(
             } else {
                 HangameColors.TextPrimary
             },
-            fontWeight = weight,
+            fontWeight = if (emphasize) FontWeight.Black else FontWeight.SemiBold,
             modifier = Modifier.weight(1f),
         )
         Text(
             text = "+${ChipFormat.format(amount)}",
-            style = MaterialTheme.typography.titleSmall,
+            style = MaterialTheme.typography.titleMedium,
             color = color,
-            fontWeight = weight,
+            fontWeight = FontWeight.Bold,
             modifier = Modifier.wrapContentWidth(),
         )
     }

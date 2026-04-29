@@ -27,7 +27,6 @@ import com.infocar.pokermaster.engine.rules.Rng
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.NonCancellable
 import kotlinx.serialization.encodeToString
-import kotlinx.serialization.json.Json
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -111,14 +110,13 @@ class TableViewModel private constructor(
     private val _actionEvent = MutableSharedFlow<ActionEvent>(replay = 0, extraBufferCapacity = 8)
     val actionEvent: SharedFlow<ActionEvent> = _actionEvent.asSharedFlow()
 
-    // M5-B: 핸드 히스토리 수집 버퍼. handIndex 가 바뀔 때마다 리셋.
+    //핸드 히스토리 수집 버퍼. handIndex 가 바뀔 때마다 리셋.
     private var currentHandIndex: Long = controller.state.handIndex
     private var currentHandInitialState: GameState = controller.state
     private var currentHandActions: MutableList<ActionLogEntry> = mutableListOf()
-    private val historyJson = Json { ignoreUnknownKeys = true; encodeDefaults = true }
 
-    // M6-C: 마지막 settle 중복 방지 플래그.
-    private var settled: Boolean = false
+    //마지막 settle 중복 방지 플래그 (race-safe).
+    private val settled: AtomicBoolean = AtomicBoolean(false)
     private val humanSessionBuyIn: Long =
         initialPlayers.firstOrNull { it.isHuman }?.chips?.coerceAtLeast(0L) ?: 0L
     private var buyInJob: Job? = null
@@ -132,8 +130,8 @@ class TableViewModel private constructor(
      */
     private val humanActionInFlight = AtomicBoolean(false)
 
-    /** 쇼다운 후 자동 다음 핸드까지 대기 시간(초). 사용자 룰: "한 판 끝나고 다음 판까지 3초". */
-    private val autoNextDelaySeconds = 3
+    /** 쇼다운 후 자동 다음 핸드까지 대기 시간(초). WinnerBanner 단독 노출 시간. */
+    private val autoNextDelaySeconds = 5
 
     /**
      * 테이블 진입 직후 NPC tick 시작 전 휴식(ms).
@@ -146,11 +144,12 @@ class TableViewModel private constructor(
         if (snap != null && snap.state.mode == config.mode) {
             _resumePrompt.value = snap.toPrompt()
         } else {
-            // 진입 직후 2초 휴식 — 카드 딜링 애니 + 사용자 화면 적응 시간. 별도 카운트다운
-            // 없이 NPC tick 만 지연.
+            // 진입 직후 2초 휴식 — 카드 딜링 애니 + 사용자 화면 적응 시간.
+            // buy-in 검증이 끝날 때까지 NPC tick 시작을 보류 → "유령 세션" 방지.
             viewModelScope.launch {
                 delay(initialRestMs)
-                startTicking()
+                buyInJob?.join()
+                if (buyInAccepted) startTicking()
             }
         }
         // 테이블 세션 시작 시 wallet 에서 본인 buy-in 만큼 차감 (사용자 룰: 본인 chips=wallet 전체).
@@ -187,8 +186,7 @@ class TableViewModel private constructor(
      * 사용자가 onExit 하거나 ViewModel 이 cleared 될 때 호출.
      */
     fun settleAndClose() {
-        if (settled) return
-        settled = true
+        if (!settled.compareAndSet(false, true)) return
         val repo = walletRepo ?: return
         val scope = historyScope ?: viewModelScope
         val finalChips = _state.value.players.firstOrNull { it.isHuman }?.chips ?: 0L
@@ -205,8 +203,7 @@ class TableViewModel private constructor(
      * settled flag 로 중복 settle 방지 (이후 onCleared 호출되어도 noop).
      */
     suspend fun settleAndCloseAwait() {
-        if (settled) return
-        settled = true
+        if (!settled.compareAndSet(false, true)) return
         val repo = walletRepo ?: return
         val finalChips = _state.value.players.firstOrNull { it.isHuman }?.chips ?: 0L
         runCatching {
@@ -249,9 +246,17 @@ class TableViewModel private constructor(
                 return
             }
             val streetBefore = s.street
-            val next = controller.humanAct(action)
+            // 엔진 reduce는 여러 require/IAE를 던질 수 있다 (특히 DECLARE). 앱 크래시 방지.
+            val next = try {
+                controller.humanAct(action)
+            } catch (t: Throwable) {
+                android.util.Log.e("TableVM", "humanAct threw — keeping state", t)
+                _uiMessages.tryEmit("액션을 적용할 수 없습니다 — 상태가 변경되었을 수 있습니다.")
+                return
+            }
+            // 엔진이 silent degrade(invalid raise → CALL 등)한 경우 사용자에게 1회 안내.
+            detectSilentDegrade(s, action, next)?.let { _uiMessages.tryEmit(it) }
             showLastAction(seat, action)
-            // M5-B: human 액션 로그 + 핸드 종료 감지.
             logAction(seat = seat, action = action, streetOrdinal = streetBefore.ordinal)
             _state.value = next
             _actionEvent.tryEmit(ActionEvent(seat = seat, type = action.type, isHuman = true))
@@ -260,6 +265,28 @@ class TableViewModel private constructor(
             startTicking()
         } finally {
             humanActionInFlight.set(false)
+        }
+    }
+
+    /**
+     * 엔진의 silent degrade(잘못된 raise/all-in이 call/check로 강등됨) 감지.
+     * 정상 적용이거나 비대상 액션이면 null.
+     */
+    private fun detectSilentDegrade(prev: GameState, requested: Action, next: GameState): String? {
+        val seat = prev.toActSeat ?: return null
+        val before = prev.players.firstOrNull { it.seat == seat } ?: return null
+        val after = next.players.firstOrNull { it.seat == seat } ?: return null
+        return when (requested.type) {
+            ActionType.RAISE, ActionType.BET -> {
+                val expectedDelta = (requested.amount.coerceAtLeast(0L) - before.committedThisStreet)
+                    .coerceAtLeast(0L)
+                val actualDelta = after.committedThisHand - before.committedThisHand
+                val degraded = actualDelta < expectedDelta && next.betToCall <= prev.betToCall
+                if (degraded) "레이즈가 룰에 맞지 않아 콜로 처리됐어요 (raise cap / 최소 레이즈 미만)." else null
+            }
+            ActionType.ALL_IN ->
+                if (after.allIn) null else "올인이 콜로 처리됐어요 (잔여 칩 부족 또는 베팅 봉착)."
+            else -> null
         }
     }
 
@@ -290,7 +317,7 @@ class TableViewModel private constructor(
         val humanBust = human != null && human.chips == 0L
         if (active >= 2 && !humanBust) {
             _state.value = controller.nextHand()
-            // M5-B: 다음 핸드 초기 상태/seed 새로 캡처 + 액션 로그 초기화.
+            //다음 핸드 초기 상태/seed 새로 캡처 + 액션 로그 초기화.
             resetHistoryBufferFor(controller.state)
             persistSnapshot()
             startTicking()
@@ -316,6 +343,53 @@ class TableViewModel private constructor(
     }
 
     /**
+     * 인간 차례에서 일정 시간(현재 60초) 이후 자동 정리.
+     * 콜 봉착이면 FOLD, 아니면 CHECK. 핸드가 영구 멈추는 것 방지.
+     */
+    fun onTimeoutAutoFold() {
+        val s = _state.value
+        if (s.pendingShowdown != null) return
+        if (s.street == Street.DECLARE) {
+            // declare 단계에선 안전한 디폴트인 HIGH 자동 선언.
+            onDeclare(Declaration.HIGH)
+            return
+        }
+        val seat = s.toActSeat ?: return
+        val p = s.players.firstOrNull { it.seat == seat } ?: return
+        if (!p.isHuman) return
+        val toCall = (s.betToCall - p.committedThisStreet).coerceAtLeast(0L)
+        if (toCall > 0L) {
+            onHumanAction(Action(ActionType.FOLD))
+        } else {
+            onHumanAction(Action(ActionType.CHECK))
+        }
+    }
+
+    /** UI에 silent degrade를 알리는 1회성 토스트 메시지. */
+    private val _uiMessages = MutableSharedFlow<String>(replay = 0, extraBufferCapacity = 4)
+    val uiMessages: SharedFlow<String> = _uiMessages.asSharedFlow()
+
+    /** NPC tick 예외 등 사용자 결정이 필요한 회복 상태 — null=정상. */
+    private val _recoveryState = MutableStateFlow<RecoveryState?>(null)
+    val recoveryState: StateFlow<RecoveryState?> = _recoveryState.asStateFlow()
+
+    fun dismissRecovery() {
+        _recoveryState.value = null
+    }
+
+    /** "현재 핸드 폐기 후 다음 핸드" — NPC tick 멈춤 회복용. */
+    fun recoverByDiscardingHand() {
+        val current = _state.value
+        // 인간이 차례면 자동 폴드해서 핸드 종료, 아니면 강제 종료 시도.
+        val seat = current.players.firstOrNull { it.isHuman }?.seat
+        if (seat != null && current.toActSeat == seat) {
+            onHumanAction(Action(ActionType.FOLD))
+        }
+        _recoveryState.value = null
+        startTicking()
+    }
+
+    /**
      * 나가기 요청은 진행 중 핸드를 중간 정산하지 않고 예약한다.
      *
      * @return 이미 핸드가 끝난 상태라 즉시 로비로 돌아가도 되면 true.
@@ -336,7 +410,7 @@ class TableViewModel private constructor(
             startTicking()
             return
         }
-        // M7-BugFix: 파일 손상/수동 편집으로 hex 필드가 깨져 있어도 앱이 죽지 않도록 runCatching.
+        //파일 손상/수동 편집으로 hex 필드가 깨져 있어도 앱이 죽지 않도록 runCatching.
         val rng = runCatching {
             Rng.ofSeeds(
                 serverSeed = snap.rngServerSeedHex.hexToBytes(),
@@ -356,7 +430,7 @@ class TableViewModel private constructor(
             resumeFrom = ResumeSeed(state = snap.state, rng = rng),
         )
         _state.value = controller.state
-        // M5-B: 재개된 핸드는 현재 상태를 "시작" 으로 간주 (이전 액션 로그는 소실).
+        //재개된 핸드는 현재 상태를 "시작" 으로 간주 (이전 액션 로그는 소실).
         resetHistoryBufferFor(controller.state)
         _resumePrompt.value = null
         startTicking()
@@ -417,6 +491,9 @@ class TableViewModel private constructor(
         _autoNextCountdown.value = null
     }
 
+    /** 사용자가 핸드 종료 화면을 더 보고 싶을 때 자동 진행을 정지. */
+    fun pauseAutoNext() = cancelAutoNext()
+
     // ---------------------------------------------------------------- Internal
 
     private fun startTicking() {
@@ -428,7 +505,7 @@ class TableViewModel private constructor(
                 if (s.pendingShowdown != null) return@launch
                 val p = s.players.firstOrNull { it.seat == seat } ?: return@launch
                 if (p.isHuman) return@launch
-                // M7-BugFix: toAct가 inactive seat(all-in/folded)을 가리키는 drift 상태라면
+                //toAct가 inactive seat(all-in/folded)을 가리키는 drift 상태라면
                 // NPC act 호출 시 engine 이 require(active) 트립. 탈출시켜 freeze 방지.
                 // 단, DECLARE 단계는 all-in(=alive but !active) 도 declare 해야 하므로 통과.
                 val inDeclare = s.street == Street.DECLARE
@@ -449,12 +526,16 @@ class TableViewModel private constructor(
                 } catch (ce: kotlinx.coroutines.CancellationException) {
                     throw ce
                 } catch (t: Throwable) {
-                    // M7-BugFix: engine에서 assertion/크래시가 나도 전체 앱 죽이지 않음.
-                    // 다음 인간 액션이나 resume으로 복구될 수 있도록 tick만 중단.
-                    android.util.Log.e("TableVM", "NPC tick failed — aborting loop", t)
+                    //engine에서 assertion/크래시가 나도 전체 앱 죽이지 않음.
+                    // 사용자에게 회복 다이얼로그를 띄워 핸드 포기 또는 로비 복귀 선택권을 부여.
+                    android.util.Log.e("TableVM", "NPC tick failed — surfacing recovery dialog", t)
+                    _recoveryState.value = RecoveryState(
+                        message = "AI 응답 중 오류가 발생했습니다. 현재 핸드를 정리하고 계속할까요?",
+                        cause = t.message ?: t::class.simpleName ?: "unknown",
+                    )
                     return@launch
                 } ?: run {
-                    // M7-BugFix: GameController 가 null 반환 (toAct drift / 인간 차례) → 루프 종료.
+                    //GameController 가 null 반환 (toAct drift / 인간 차례) → 루프 종료.
                     android.util.Log.w("TableVM", "npcActAndLog returned null — tick skipped")
                     return@launch
                 }
@@ -517,7 +598,7 @@ class TableViewModel private constructor(
             initialState = currentHandInitialState,
             actions = currentHandActions.toList(),
             resultJson = runCatching {
-                historyJson.encodeToString(ShowdownSummary.serializer(), state.pendingShowdown!!)
+                HandHistoryRepository.DEFAULT_JSON.encodeToString(ShowdownSummary.serializer(), state.pendingShowdown!!)
             }.getOrElse {
                 android.util.Log.w("TableVM", "ShowdownSummary encode failed for hand=${state.handIndex}", it)
                 "{}"
@@ -684,6 +765,12 @@ data class ActionEvent(
     val seat: Int,
     val type: ActionType,
     val isHuman: Boolean,
+)
+
+/** NPC tick 예외 등 사용자가 직접 회복 결정을 해야 하는 상태. */
+data class RecoveryState(
+    val message: String,
+    val cause: String,
 )
 
 // ---------------------------------------------------------------------------- Hex helpers

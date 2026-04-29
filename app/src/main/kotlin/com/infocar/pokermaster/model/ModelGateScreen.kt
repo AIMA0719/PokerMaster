@@ -10,8 +10,10 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
@@ -150,6 +152,9 @@ fun ModelGateScreen(
         if (phase is Phase.Ready) onReady()
     }
 
+    // 기본 AI(폴백) 모드로 계속 진행하는 단일 dispatcher — Unsupported / Failed 패널에서 사용.
+    val onContinueWithFallback: () -> Unit = { phase = Phase.Ready }
+
     Scaffold(
         modifier = Modifier
             .fillMaxSize()
@@ -195,8 +200,12 @@ fun ModelGateScreen(
                 is Phase.Failed -> FailedPanel(
                     reason = p.reason,
                     onRetry = { phase = Phase.NotInstalled },
+                    onContinue = onContinueWithFallback,
                 )
-                is Phase.Unsupported -> UnsupportedPanel(reason = p.reason)
+                is Phase.Unsupported -> UnsupportedPanel(
+                    reason = p.reason,
+                    onContinue = onContinueWithFallback,
+                )
                 Phase.Ready -> Unit  // 곧 onReady() 로 나감
             }
         }
@@ -281,7 +290,7 @@ private fun NotInstalledPanel(
         entry.attributionNotice?.let {
             Text(
                 text = it,
-                style = MaterialTheme.typography.bodySmall,
+                style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
             )
         }
@@ -289,7 +298,10 @@ private fun NotInstalledPanel(
         SettingRow(
             label = "Wi-Fi 에서만 다운로드",
             checked = wifiOnly,
-            onCheckedChange = onToggleWifi,
+            onCheckedChange = {
+                onToggleWifi(it)
+                if (it) onToggleCellular(false)
+            },
         )
         SettingRow(
             label = "셀룰러 데이터 사용 동의",
@@ -297,8 +309,26 @@ private fun NotInstalledPanel(
             onCheckedChange = onToggleCellular,
             enabled = !wifiOnly,
         )
-        Button(onClick = onStart, modifier = Modifier.fillMaxWidth()) {
-            Text("다운로드 시작")
+        if (!wifiOnly) {
+            Text(
+                text = "셀룰러 데이터 사용 시 통신 요금이 발생할 수 있습니다.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.error,
+            )
+        }
+        val canStart = wifiOnly || cellularConsent
+        Button(
+            onClick = onStart,
+            enabled = canStart,
+            modifier = Modifier
+                .fillMaxWidth()
+                .defaultMinSize(minHeight = 56.dp),
+        ) {
+            Text(
+                text = if (canStart) "다운로드 시작" else "셀룰러 사용 동의 후 시작",
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.SemiBold,
+            )
         }
     }
 }
@@ -318,12 +348,14 @@ private fun DownloadingPanel(
     ) {
         Text(
             text = "${entry.displayName} 다운로드 중",
-            style = MaterialTheme.typography.titleMedium,
+            style = MaterialTheme.typography.titleLarge,
         )
         val fraction = (state as? DownloadState.Running)?.fraction ?: 0f
         LinearProgressIndicator(
             progress = { fraction },
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(8.dp),
         )
         val caption = when (state) {
             is DownloadState.Running -> "${formatMb(state.downloaded)} / ${formatMb(state.total)}"
@@ -334,14 +366,20 @@ private fun DownloadingPanel(
         if (caption.isNotEmpty()) {
             Text(caption, style = MaterialTheme.typography.bodyMedium)
         }
-        OutlinedButton(onClick = onCancel) {
-            Text("취소")
+        OutlinedButton(
+            onClick = onCancel,
+            modifier = Modifier.defaultMinSize(minHeight = 48.dp),
+        ) {
+            Text(
+                text = "취소",
+                style = MaterialTheme.typography.bodyLarge,
+            )
         }
     }
 }
 
 @Composable
-private fun UnsupportedPanel(reason: String) {
+private fun UnsupportedPanel(reason: String, onContinue: () -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -355,17 +393,29 @@ private fun UnsupportedPanel(reason: String) {
             color = MaterialTheme.colorScheme.error,
             fontWeight = FontWeight.SemiBold,
         )
-        Text(reason, style = MaterialTheme.typography.bodyMedium)
+        Text(reason, style = MaterialTheme.typography.bodyLarge)
         Text(
             text = "기본 AI (Monte Carlo + persona) 로 계속 플레이할 수 있습니다.",
-            style = MaterialTheme.typography.bodySmall,
+            style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
         )
+        Button(
+            onClick = onContinue,
+            modifier = Modifier
+                .fillMaxWidth()
+                .defaultMinSize(minHeight = 56.dp),
+        ) {
+            Text(
+                text = "기본 AI 모드로 계속",
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.SemiBold,
+            )
+        }
     }
 }
 
 @Composable
-private fun FailedPanel(reason: String, onRetry: () -> Unit) {
+private fun FailedPanel(reason: String, onRetry: () -> Unit, onContinue: () -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -379,8 +429,31 @@ private fun FailedPanel(reason: String, onRetry: () -> Unit) {
             color = MaterialTheme.colorScheme.error,
             fontWeight = FontWeight.SemiBold,
         )
-        Text(reason, style = MaterialTheme.typography.bodyMedium)
-        Button(onClick = onRetry) { Text("재시도") }
+        Text(reason, style = MaterialTheme.typography.bodyLarge)
+        Button(
+            onClick = onRetry,
+            modifier = Modifier
+                .fillMaxWidth()
+                .defaultMinSize(minHeight = 56.dp),
+        ) {
+            Text(
+                text = "재시도",
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.SemiBold,
+            )
+        }
+        OutlinedButton(
+            onClick = onContinue,
+            modifier = Modifier
+                .fillMaxWidth()
+                .defaultMinSize(minHeight = 56.dp),
+        ) {
+            Text(
+                text = "기본 AI 모드로 계속",
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.SemiBold,
+            )
+        }
     }
 }
 
@@ -398,6 +471,7 @@ private fun SettingRow(
     ) {
         Text(
             text = label,
+            style = MaterialTheme.typography.bodyLarge,
             color = if (enabled) MaterialTheme.colorScheme.onSurface
             else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f),
         )

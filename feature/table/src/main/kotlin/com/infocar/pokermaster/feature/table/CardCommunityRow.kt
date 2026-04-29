@@ -10,8 +10,10 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -39,47 +41,55 @@ import com.infocar.pokermaster.feature.table.anim.cardEntrance
 fun CardCommunityRow(
     community: List<Card>,
     modifier: Modifier = Modifier,
-    cardWidth: Dp = 52.dp,
-    cardHeight: Dp = 74.dp,
+    cardWidth: Dp? = null,
+    cardHeight: Dp? = null,
 ) {
-    Row(
-        modifier = modifier,
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        for (i in 0 until 5) {
-            val card = community.getOrNull(i)
-            if (card == null) {
-                PlayingCard(card = null, faceDown = false, width = cardWidth, height = cardHeight)
-            } else {
-                val duration = when {
-                    i < 3 -> DealAnimationSpec.FLOP_CARD_DURATION_MS
-                    i == 3 -> DealAnimationSpec.TURN_CARD_DURATION_MS
-                    else -> DealAnimationSpec.RIVER_CARD_DURATION_MS
-                }
-                val delay = if (i < 3) i * DealAnimationSpec.FLOP_CARD_STAGGER_MS else 0
-                val easing = if (i < 3) LinearOutSlowInEasing else FastOutSlowInEasing
+    BoxWithConstraints(modifier = modifier) {
+        val gapDp = 6.dp
+        // 5장 + 4 gap. 가용 폭에서 좌우 여유 8dp.
+        val computedWidth = ((maxWidth - gapDp * 4 - 8.dp) / 5)
+            .coerceIn(56.dp, 88.dp)
+        val finalWidth = cardWidth ?: computedWidth
+        val finalHeight = cardHeight ?: (finalWidth * (74f / 52f))
 
-                val transitionState = remember(card) {
-                    MutableTransitionState(false).apply { targetState = true }
-                }
-                val slideSpec: FiniteAnimationSpec<IntOffset> =
-                    tween(durationMillis = duration, delayMillis = delay, easing = easing)
-                val fadeSpec: FiniteAnimationSpec<Float> =
-                    tween(durationMillis = duration, delayMillis = delay)
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(gapDp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            for (i in 0 until 5) {
+                val card = community.getOrNull(i)
+                if (card == null) {
+                    PlayingCard(card = null, faceDown = false, width = finalWidth, height = finalHeight)
+                } else {
+                    val duration = when {
+                        i < 3 -> DealAnimationSpec.FLOP_CARD_DURATION_MS
+                        i == 3 -> DealAnimationSpec.TURN_CARD_DURATION_MS
+                        else -> DealAnimationSpec.RIVER_CARD_DURATION_MS
+                    }
+                    val delay = if (i < 3) i * DealAnimationSpec.FLOP_CARD_STAGGER_MS else 0
+                    val easing = if (i < 3) LinearOutSlowInEasing else FastOutSlowInEasing
 
-                AnimatedVisibility(
-                    visibleState = transitionState,
-                    enter = slideInHorizontally(animationSpec = slideSpec) { w -> w / 2 } +
-                        fadeIn(animationSpec = fadeSpec),
-                ) {
-                    PlayingCard(
-                        card = card,
-                        faceDown = false,
-                        width = cardWidth,
-                        height = cardHeight,
-                        modifier = Modifier.cardEntrance(durationMs = duration, delayMs = delay, key = card),
-                    )
+                    val transitionState = remember(card) {
+                        MutableTransitionState(false).apply { targetState = true }
+                    }
+                    val slideSpec: FiniteAnimationSpec<IntOffset> =
+                        tween(durationMillis = duration, delayMillis = delay, easing = easing)
+                    val fadeSpec: FiniteAnimationSpec<Float> =
+                        tween(durationMillis = duration, delayMillis = delay)
+
+                    AnimatedVisibility(
+                        visibleState = transitionState,
+                        enter = slideInHorizontally(animationSpec = slideSpec) { w -> w / 2 } +
+                            fadeIn(animationSpec = fadeSpec),
+                    ) {
+                        PlayingCard(
+                            card = card,
+                            faceDown = false,
+                            width = finalWidth,
+                            height = finalHeight,
+                            modifier = Modifier.cardEntrance(durationMs = duration, delayMs = delay, key = card),
+                        )
+                    }
                 }
             }
         }
@@ -94,7 +104,7 @@ fun CardCommunityRow(
 @Composable
 private fun CommunityPreviewEmpty() {
     PokerMasterTheme {
-        Box(modifier = Modifier.padding(16.dp)) {
+        Box(modifier = Modifier.width(360.dp).padding(16.dp)) {
             CardCommunityRow(community = emptyList())
         }
     }
@@ -104,7 +114,7 @@ private fun CommunityPreviewEmpty() {
 @Composable
 private fun CommunityPreviewFlop() {
     PokerMasterTheme {
-        Box(modifier = Modifier.padding(16.dp)) {
+        Box(modifier = Modifier.width(360.dp).padding(16.dp)) {
             CardCommunityRow(
                 community = listOf(
                     Card(Suit.SPADE, Rank.ACE),
@@ -120,7 +130,7 @@ private fun CommunityPreviewFlop() {
 @Composable
 private fun CommunityPreviewRiver() {
     PokerMasterTheme {
-        Box(modifier = Modifier.padding(16.dp)) {
+        Box(modifier = Modifier.width(360.dp).padding(16.dp)) {
             CardCommunityRow(
                 community = listOf(
                     Card(Suit.SPADE, Rank.ACE),

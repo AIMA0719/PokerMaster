@@ -84,7 +84,7 @@ fun HistoryListScreen(
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Text(
                         "불러오는 중…",
-                        style = MaterialTheme.typography.bodyLarge,
+                        style = MaterialTheme.typography.titleMedium,
                         color = HangameColors.TextSecondary,
                     )
                 }
@@ -94,7 +94,7 @@ fun HistoryListScreen(
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Text(
                         "아직 기록된 핸드가 없어요.\n한 판 플레이하면 여기에 표시됩니다.",
-                        style = MaterialTheme.typography.bodyLarge,
+                        style = MaterialTheme.typography.titleMedium,
                         color = HangameColors.TextSecondary,
                     )
                 }
@@ -105,7 +105,7 @@ fun HistoryListScreen(
                     .fillMaxSize()
                     .widthIn(max = 720.dp),
                 contentPadding = androidx.compose.foundation.layout.PaddingValues(12.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 items(state.items, key = { it.id }) { row ->
                     HandHistoryCard(row = row, onClick = { onOpenDetail(row.id) })
@@ -131,20 +131,39 @@ private fun HandHistoryCard(row: HandHistoryRow, onClick: () -> Unit) {
             ) {
                 Text(
                     "#${row.handIndex} · ${row.mode}",
-                    fontWeight = FontWeight.SemiBold,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
                     color = HangameColors.TextPrimary,
                 )
                 Text(
                     row.startedAtDisplay,
-                    style = MaterialTheme.typography.bodySmall,
+                    style = MaterialTheme.typography.labelMedium,
                     color = HangameColors.TextSecondary,
                 )
             }
             Text(
-                "${row.winnerDisplay} · pot ${formatChips(row.potSize)}",
-                style = MaterialTheme.typography.bodyMedium,
+                "${row.winnerDisplay} · 팟 ${formatChips(row.potSize)}",
+                style = MaterialTheme.typography.titleSmall,
                 color = HangameColors.TextChip,
             )
+            row.humanNet?.let { net ->
+                val sign = when {
+                    net > 0L -> "+"
+                    net < 0L -> "-"
+                    else -> "±"
+                }
+                val color = when {
+                    net > 0L -> HangameColors.TextLime
+                    net < 0L -> HangameColors.TextDanger
+                    else -> HangameColors.TextSecondary
+                }
+                Text(
+                    "내 결과 $sign${formatChips(kotlin.math.abs(net))}",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = color,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
         }
     }
 }
@@ -157,11 +176,11 @@ private fun formatChips(n: Long): String {
     val JO = 1_000_000_000_000L
     val GYEONG = 10_000_000_000_000_000L
     return sign + when {
-        abs < MAN -> "%,d원".format(abs)
+        abs < MAN -> "%,d칩".format(abs)
         abs < EOK -> {
             val man = abs / MAN
             val rem = abs % MAN
-            if (rem == 0L) "%,d만".format(man) else "%,d만 %,d원".format(man, rem)
+            if (rem == 0L) "%,d만".format(man) else "%,d만 %,d".format(man, rem)
         }
         abs < JO -> {
             val eok = abs / EOK

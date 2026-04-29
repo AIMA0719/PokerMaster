@@ -54,15 +54,21 @@ fun ImageCard(
     height: Dp = 64.dp,
     contentDescription: String? = null,
 ) {
+    // Canvas 카드 [PlayingCard] 와 동일한 시각 토큰. 두 모드 간 시각적 일관성을 위해
+    // corner / highlight scale / border width 를 한 곳에서 맞춘다.
     val gold = Color(0xFFD4AF37)
     val cornerRadius = 8.dp
 
-    val baseModifier = modifier
+    // size 는 default 를 먼저 적용하고 caller modifier 가 chain 끝에 오도록 — caller 가
+    // Modifier.size(...) 로 override 하면 후행 size 가 우선한다 ([PlayingCard] 와 동일 규칙).
+    val baseModifier = Modifier
         .size(width = width, height = height)
         .then(if (highlight) Modifier.scale(1.05f) else Modifier)
+        .then(modifier)
 
     if (card == null && !faceDown) {
-        // Placeholder: 이미지 모드에서도 카드가 없는 슬롯은 동일한 점선 표현.
+        // Placeholder: 이미지 모드에서도 카드가 없는 슬롯은 Canvas 모드와 동일한 점선 표현.
+        // (CardPlaceholder 를 공유하므로 fill / dash / outline 전부 일치한다.)
         CardPlaceholder(
             modifier = baseModifier,
             cornerRadius = cornerRadius,
@@ -78,10 +84,14 @@ fun ImageCard(
         cardDrawableRes(card)
     }
 
-    val borderStroke = if (highlight) {
-        BorderStroke(2.dp, gold)
-    } else {
-        BorderStroke(0.5.dp, Color.Black.copy(alpha = 0.25f))
+    // Canvas 모드와 border 규칙 정렬:
+    //  - highlight: 2dp gold (양 모드 공통)
+    //  - faceDown: 1dp gold trim (CardBack 의 기본 골드 테두리와 동일)
+    //  - faceUp:  0.5dp@25% black (CardFace 의 일반 테두리와 동일)
+    val borderStroke = when {
+        highlight -> BorderStroke(2.dp, gold)
+        faceDown -> BorderStroke(1.dp, gold)
+        else -> BorderStroke(0.5.dp, Color.Black.copy(alpha = 0.25f))
     }
 
     Box(

@@ -22,6 +22,12 @@ interface HandHistoryRepository {
 
     companion object {
         const val DEFAULT_LIMIT: Int = 50
+
+        /** record 인코딩/디코딩 공용 Json. 스키마 확장 내성 + leniency. */
+        val DEFAULT_JSON: Json = Json {
+            ignoreUnknownKeys = true
+            encodeDefaults = true
+        }
     }
 }
 
@@ -30,7 +36,7 @@ interface HandHistoryRepository {
  */
 class RoomHandHistoryRepository(
     private val dao: HandHistoryDao,
-    private val json: Json = DEFAULT_JSON,
+    private val json: Json = HandHistoryRepository.DEFAULT_JSON,
 ) : HandHistoryRepository {
 
     override suspend fun record(record: HandHistoryRecord): Long =
@@ -46,14 +52,6 @@ class RoomHandHistoryRepository(
     override suspend fun countSince(sinceEpochMs: Long): Int = dao.countSince(sinceEpochMs)
     override suspend fun delete(id: Long) = dao.deleteById(id)
     override suspend fun clear() = dao.clear()
-
-    companion object {
-        /** LLM 응답 파서와 동일 스타일 — 스키마 확장 내성 + leniency. */
-        val DEFAULT_JSON: Json = Json {
-            ignoreUnknownKeys = true
-            encodeDefaults = true
-        }
-    }
 }
 
 /**
